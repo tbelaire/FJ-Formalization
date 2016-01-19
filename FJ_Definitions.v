@@ -140,7 +140,7 @@ Proof.
     assumption.
 Qed.
 
-Lemma no_self_inheritance : forall CT : ctable,
+Example no_self_inheritance : forall CT : ctable,
     directed_ct CT ->
     forall C : cname,
     ~ exists fs ms, binds C (C,fs,ms) CT.
@@ -177,35 +177,37 @@ Proof.
     apply H4.
 Qed.
 
-
-    (*
-    induction H as [| C' D fs' ms' ct' Hdir ].
-
-    (* base case *)
-    absurd (get C nil = Some (C, fs, ms)).
-    discriminate.
+Lemma directed_is_ok : forall ct,
+    directed_ct ct -> ok ct.
+Proof.
+    intros.
+    induction H.
+    auto.
+    Check dom_binds.
+    Print ok.
+    pose (dom_binds_neg ct C H0) as H3.
+    apply ok_cons.
     assumption.
-
-    (* inductive step *)
-    assert (H3: C = C' \/ C <> C').
-    admit. (* Excluded middle *)
-    destruct H3 as [H3|H3].
-    rewrite <- H3 in * |-. clear H3.
-    induction Hok as [|ct'' C'' v Hok IHHok Hno_binds].
-    absurd (get C nil = Some (C, fs, ms)).
-    discriminate.
-    discriminate.
-    *)
-
-
-
+    unfold no_binds.
+    assumption.
+Qed.
 
 (* Need to generate a lineage list, of all the parents. *)
 
-(*
-* Fixpoint lineage (CT: ctable) (H: directed_ct CT) (C: cname) : list cname := _ .
-*)
+Fixpoint lineage (CT: ctable) (* (H: directed_ct CT) *) (C: cname) {struct CT} : list cname :=
+    match CT with
+    | nil => nil
+    | ((C', (D, _, _)) :: CT') =>
+            if C == C' then
+            D :: lineage CT' D
+            else
+            lineage CT' C
+    end.
 
+Example lineage_test : forall A B C D,
+    lineage ([(A (B, nil, nil));
+             (B (C, nil, nil));
+             (C (D, nil, nil))]) A = [B; C; D].
 (*
 Fixpoint mbody {CT: ctable} (m: mname) (C: cname) : option exp :=
     match (get C CT) with
