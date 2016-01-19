@@ -42,6 +42,10 @@ Definition typ := cname.
 (** The expression forms are variable reference, field get, method invocation
     and object creation. *)
 
+(* (Expr) but missing cast.  The rest of (C-Decl), (K-Decl), (M-Decl) syntax are
+   not included.
+   We do have a class table CT, constructed without syntax ahead of time. *)
+
 Inductive exp : Set :=
 | e_var : var -> exp
 | e_field : exp -> fname -> exp
@@ -78,6 +82,8 @@ Parameter CT : ctable.
 (** [field C f t] holds if a field named [f] with type [t] is defined for class
     [C] in the class hierarchy. *)
 
+(* (F-Object) and (Fields) defined. *)
+
 Inductive fields : cname -> flds -> Prop :=
 | fields_obj : fields Object nil
 | fields_other : forall C D fs fs' ms,
@@ -107,6 +113,112 @@ Inductive method : cname -> mname -> typ * env * exp -> Prop :=
     method C m mdecl.
 
 Hint Constructors method.
+
+(*
+Notation ctable := (list (cname * (cname * flds * mths))).
+Notation flds := (list (fname * typ)).
+Notation mths := (list (mname * (typ * env * exp))).
+Notation env := (list (var * typ)).
+*)
+
+Inductive directed_ct : ctable -> Prop :=
+| directed_ct_nil : directed_ct nil
+| directed_ct_cons :
+        forall (C D : cname) (fs : flds) (ms: mths) (ct : ctable),
+        directed_ct ct ->
+        C \notin (keys ct) -> (* No duplicate bindings *)
+        D \in (keys ct) ->    (* No forward references *)
+        directed_ct ((C, (D, fs, ms)) :: ct).
+
+
+Lemma weaken_directed_ct : forall x v ct,
+    directed_ct ((x, v) :: ct) ->
+    directed_ct ct.
+Proof.
+    intros.
+    inversion H.
+    assumption.
+Qed.
+
+Lemma no_self_inheritance : forall CT : ctable,
+    directed_ct CT ->
+    forall C : cname,
+    ~ exists fs ms, binds C (C,fs,ms) CT.
+Proof.
+    intros.
+    unfold not.
+    intros.
+    destruct H0 as [fs].
+    destruct H0 as [ms].
+    induction H.
+    unfold binds in H0.
+    absurd (None = Some (C, fs, ms)); discriminate.
+
+    destruct (C == C0) as [H3 | Hneq].
+
+    (* C == C0 *)
+    rewrite <- H3 in * |-. clear H3 C0.
+    unfold binds in H0.
+    simpl in H0.
+    rewrite eq_atom_true in H0.
+    inversion H0.
+    rewrite H4 in H2.
+    contradiction.
+
+    (* C <> C0 *)
+
+    inversion H0.
+    apply IHdirected_ct.
+    assert ((if C == C0 then
+             Some (D, fs0, ms0)
+             else get C ct) = get C ct).
+    exact (eq_atom_false _ _ Hneq).
+    rewrite H3 in H4.
+    apply H4.
+Qed.
+
+
+    (*
+    induction H as [| C' D fs' ms' ct' Hdir ].
+
+    (* base case *)
+    absurd (get C nil = Some (C, fs, ms)).
+    discriminate.
+    assumption.
+
+    (* inductive step *)
+    assert (H3: C = C' \/ C <> C').
+    admit. (* Excluded middle *)
+    destruct H3 as [H3|H3].
+    rewrite <- H3 in * |-. clear H3.
+    induction Hok as [|ct'' C'' v Hok IHHok Hno_binds].
+    absurd (get C nil = Some (C, fs, ms)).
+    discriminate.
+    discriminate.
+    *)
+
+
+
+
+(* Need to generate a lineage list, of all the parents. *)
+
+(*
+* Fixpoint lineage (CT: ctable) (H: directed_ct CT) (C: cname) : list cname := _ .
+*)
+
+(*
+Fixpoint mbody {CT: ctable} (m: mname) (C: cname) : option exp :=
+    match (get C CT) with
+    | None => None
+    | Some (base, _, methods) => match get m methods with
+            | None => mbody m base
+            | Some (_, _, e) => Some e
+        end
+    end.
+
+Lemma binds_to_mbody {CT: ctable}: forall 
+    *)
+
 
 (** ** Term substitution *)
 
@@ -203,6 +315,8 @@ Hint Unfold extends.
 
 (** [sub s u] holds if [s] is a subtype of [u]. The subtype relation is the
     reflexive, transitive closure of the direct subclass relation. *)
+
+(* (S-Ref) (S-Trans) (S-Sub) are defined here. *)
 
 Inductive sub : typ -> typ -> Prop :=
 | sub_refl : forall t, sub t t
