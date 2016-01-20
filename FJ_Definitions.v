@@ -183,8 +183,6 @@ Proof.
     intros.
     induction H.
     auto.
-    Check dom_binds.
-    Print ok.
     pose (dom_binds_neg ct C H0) as H3.
     apply ok_cons.
     assumption.
@@ -192,25 +190,34 @@ Proof.
     assumption.
 Qed.
 
-(* Need to generate a lineage list, of all the parents. *)
+(* Need to generate a lineage list, of all the parents as well as the current class.. *)
 
 Fixpoint lineage (CT: ctable) (* (H: directed_ct CT) *) (C: cname) {struct CT} : list cname :=
     match CT with
-    | nil => nil
+    | nil => C :: nil
     | ((C', (D, _, _)) :: CT') =>
             if C == C' then
-            D :: lineage CT' D
+            C :: lineage CT' D
             else
             lineage CT' C
     end.
 
-Example lineage_test : forall A B C D,
-    lineage ([(A (B, nil, nil));
-             (B (C, nil, nil));
-             (C (D, nil, nil))]) A = [B; C; D].
-(*
-Fixpoint mbody {CT: ctable} (m: mname) (C: cname) : option exp :=
-    match (get C CT) with
+Example lineage_test : forall A B C D : cname,
+    lineage ((A, (B, nil, nil)) ::
+             (B, (C, nil, nil)) ::
+             (C, (D, nil, nil)) :: nil ) A = A :: B :: C :: D :: nil.
+Proof.
+    intros.
+    simpl.
+    rewrite eq_atom_true.
+    rewrite eq_atom_true.
+    rewrite eq_atom_true.
+    reflexivity.
+Qed.
+
+(* I'll come back to fix this when I need it.
+Fixpoint mbody_lookup (defs : list _ ) (m: mname) : option exp :=
+    match (defs ) with
     | None => None
     | Some (base, _, methods) => match get m methods with
             | None => mbody m base
