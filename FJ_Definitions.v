@@ -50,7 +50,8 @@ Inductive exp : Set :=
 | e_var : var -> exp
 | e_field : exp -> fname -> exp
 | e_meth : exp -> mname -> list exp -> exp
-| e_new : cname -> list exp -> exp.
+| e_new : cname -> list exp -> exp
+| e_cast : cname -> exp -> exp.
 
 (** ** Environments and class tables *)
 
@@ -284,6 +285,23 @@ Inductive typing : env -> exp -> typ -> Prop :=
     fields C fs ->
     wide_typings E es (imgs fs) ->
     typing E (e_new C es) C
+(* Could use wide_typing in upcast, but not downcast or stupidcast.
+   I kept the symmetry instead. *)
+| t_upcast : forall E e0 C D,
+    typing E e0 D ->
+    sub D C ->
+    typing E (e_cast C e0) C
+| t_downcast : forall E e0 C D,
+    typing E e0 D ->
+    sub C D ->
+    C <> D ->
+    typing E (e_cast C e0) C
+(* Stupid warning *)
+| t_stupidcast : forall E e0 C D,
+    typing E e0 D ->
+    (~ sub C D) ->
+    (~ sub D C) ->
+    typing E (e_cast C e0) C
 
 with wide_typing : env -> exp -> typ -> Prop :=
 | wt_sub : forall E e t t',
@@ -343,7 +361,6 @@ Definition ok_ctable ct := ok ct /\ forall_env ok_class' ct.
 
 Hint Unfold ok_ctable.
 
-
 (** ** Term substitution *)
 
 (** [subst_exp E e] returns the term expression [e] where any occurrances of
@@ -359,6 +376,7 @@ Fixpoint subst_exp (E : benv) (e : exp) {struct e} : exp :=
     | e_field e0 f => e_field (subst_exp E e0) f
     | e_meth e0 m es => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
     | e_new C es => e_new C (List.map (subst_exp E) es)
+    | e_cast C e => e_cast C (subst_exp E e)
     end.
 
 (** * Evaluation *)
@@ -386,7 +404,9 @@ Inductive exp_context : (exp -> exp) -> Prop :=
     exp_context (fun e => e_meth e0 m (EE e))
 | ec_new_args : forall C EE,
     exps_context EE ->
-    exp_context (fun e => e_new C (EE e)).
+    exp_context (fun e => e_new C (EE e))
+| ec_cast_arg0 : forall C,
+    exp_context (fun e0 => e_cast C e0).
 
 Hint Constructors exp_context exps_context.
 
@@ -404,6 +424,9 @@ Inductive eval : exp -> exp -> Prop :=
     method C m (t,E,e) ->
     env_zip E es ves ->
     eval (e_meth (e_new C es0) m es) (subst_exp ((this,(e_new C es0))::ves) e)
+| eval_cast : forall C D fs,
+    sub C D ->
+    eval (e_cast D (e_new C fs)) (e_new C fs)
 | eval_context : forall EE e e',
     eval e e' ->
     exp_context EE ->
