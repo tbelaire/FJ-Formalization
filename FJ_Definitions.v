@@ -228,79 +228,6 @@ Fixpoint mbody_lookup (defs : list _ ) (m: mname) : option exp :=
 Lemma binds_to_mbody {CT: ctable}: forall 
     *)
 
-
-(** ** Term substitution *)
-
-(** [subst_exp E e] returns the term expression [e] where any occurrances of
-    bound variables have been replaced by their bindings in environment [E]. *)
-
-Fixpoint subst_exp (E : benv) (e : exp) {struct e} : exp :=
-    match e with
-    | e_var v =>
-        match get v E with
-        | Some e' => e'
-        | None => e_var v
-        end
-    | e_field e0 f => e_field (subst_exp E e0) f
-    | e_meth e0 m es => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
-    | e_new C es => e_new C (List.map (subst_exp E) es)
-    end.
-
-(** * Evaluation *)
-
-(** ** Evaluation contexts *)
-
-(** We model evaluation contexts as functions of type [exp -> exp].
-    [exp_context EE] holds if [EE] is an evaluation context. Basically, any
-    subexpression of an expression is an evaluation context. **)
-
-Inductive exps_context : (exp -> list exp) -> Prop :=
-| esc_head : forall es,
-    exps_context (fun e => e::es)
-| esc_tail : forall e EE,
-    exps_context EE ->
-    exps_context (fun e0 => e::(EE e0)).
-
-Inductive exp_context : (exp -> exp) -> Prop :=
-| ec_field_arg0 : forall f,
-    exp_context (fun e0 => e_field e0 f)
-| ec_meth_arg0 : forall m es,
-    exp_context (fun e0 => e_meth e0 m es)
-| ec_meth_args : forall m e0 EE,
-    exps_context EE ->
-    exp_context (fun e => e_meth e0 m (EE e))
-| ec_new_args : forall C EE,
-    exps_context EE ->
-    exp_context (fun e => e_new C (EE e)).
-
-Hint Constructors exp_context exps_context.
-
-(** ** Evaluation *)
-
-(** [eval e e'] holds when term expression [e] reduces to [e'] in one step. *)
-
-Inductive eval : exp -> exp -> Prop :=
-| eval_field : forall C fs es f e fes,
-    fields C fs ->
-    env_zip fs es fes ->
-    binds f e fes ->
-    eval (e_field (e_new C es) f) e
-| eval_meth : forall C m t E e es ves es0,
-    method C m (t,E,e) ->
-    env_zip E es ves ->
-    eval (e_meth (e_new C es0) m es) (subst_exp ((this,(e_new C es0))::ves) e)
-| eval_context : forall EE e e',
-    eval e e' ->
-    exp_context EE ->
-    eval (EE e) (EE e').
-
-Hint Constructors eval.
-(* Help Coq to eapply eval_context rule ("Meta cannot occur in evar body") *)
-Hint Extern 2 (eval (e_field _ ?f) _) => eapply (eval_context (fun e0 => e_field e0 f)).
-Hint Extern 2 (eval (e_meth _ ?m ?es) _) => eapply (eval_context (fun e0 => e_meth e0 m es)).
-Hint Extern 2 (eval (e_meth ?e0 ?m (?EE _)) _) => eapply (eval_context (fun e => e_meth e0 m (EE e))).
-Hint Extern 2 (eval (e_new ?C (?EE _)) _) => eapply (eval_context (fun e => e_new C (EE e))).
-
 (** * Typing *)
 
 (** ** Well-formed types *)
@@ -415,6 +342,79 @@ Definition ok_class' (C: cname) (v : cname * flds * mths) : Prop :=
 Definition ok_ctable ct := ok ct /\ forall_env ok_class' ct.
 
 Hint Unfold ok_ctable.
+
+
+(** ** Term substitution *)
+
+(** [subst_exp E e] returns the term expression [e] where any occurrances of
+    bound variables have been replaced by their bindings in environment [E]. *)
+
+Fixpoint subst_exp (E : benv) (e : exp) {struct e} : exp :=
+    match e with
+    | e_var v =>
+        match get v E with
+        | Some e' => e'
+        | None => e_var v
+        end
+    | e_field e0 f => e_field (subst_exp E e0) f
+    | e_meth e0 m es => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
+    | e_new C es => e_new C (List.map (subst_exp E) es)
+    end.
+
+(** * Evaluation *)
+
+(** ** Evaluation contexts *)
+
+(** We model evaluation contexts as functions of type [exp -> exp].
+    [exp_context EE] holds if [EE] is an evaluation context. Basically, any
+    subexpression of an expression is an evaluation context. **)
+
+Inductive exps_context : (exp -> list exp) -> Prop :=
+| esc_head : forall es,
+    exps_context (fun e => e::es)
+| esc_tail : forall e EE,
+    exps_context EE ->
+    exps_context (fun e0 => e::(EE e0)).
+
+Inductive exp_context : (exp -> exp) -> Prop :=
+| ec_field_arg0 : forall f,
+    exp_context (fun e0 => e_field e0 f)
+| ec_meth_arg0 : forall m es,
+    exp_context (fun e0 => e_meth e0 m es)
+| ec_meth_args : forall m e0 EE,
+    exps_context EE ->
+    exp_context (fun e => e_meth e0 m (EE e))
+| ec_new_args : forall C EE,
+    exps_context EE ->
+    exp_context (fun e => e_new C (EE e)).
+
+Hint Constructors exp_context exps_context.
+
+(** ** Evaluation *)
+
+(** [eval e e'] holds when term expression [e] reduces to [e'] in one step. *)
+
+Inductive eval : exp -> exp -> Prop :=
+| eval_field : forall C fs es f e fes,
+    fields C fs ->
+    env_zip fs es fes ->
+    binds f e fes ->
+    eval (e_field (e_new C es) f) e
+| eval_meth : forall C m t E e es ves es0,
+    method C m (t,E,e) ->
+    env_zip E es ves ->
+    eval (e_meth (e_new C es0) m es) (subst_exp ((this,(e_new C es0))::ves) e)
+| eval_context : forall EE e e',
+    eval e e' ->
+    exp_context EE ->
+    eval (EE e) (EE e').
+
+Hint Constructors eval.
+(* Help Coq to eapply eval_context rule ("Meta cannot occur in evar body") *)
+Hint Extern 2 (eval (e_field _ ?f) _) => eapply (eval_context (fun e0 => e_field e0 f)).
+Hint Extern 2 (eval (e_meth _ ?m ?es) _) => eapply (eval_context (fun e0 => e_meth e0 m es)).
+Hint Extern 2 (eval (e_meth ?e0 ?m (?EE _)) _) => eapply (eval_context (fun e => e_meth e0 m (EE e))).
+Hint Extern 2 (eval (e_new ?C (?EE _)) _) => eapply (eval_context (fun e => e_new C (EE e))).
 
 (** * Properties *)
 
