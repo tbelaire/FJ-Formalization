@@ -49,6 +49,34 @@ Definition In_atom_list_dec := In_dec eq_atom_dec.
 Notation "x \in E" := (In x E) (at level 69).
 Notation "x \notin E" := (~ In x E) (at level 69).
 
+Lemma not_in_split {A : Type} : forall (x : A) (e : A) E,
+    x \notin (e :: E) ->
+    x <> e /\ x \notin E.
+Proof.
+    intros.
+    assert (Hneq: x <> e). (* Want to re-use this *)
+    Case "x <> e".
+    unfold not.
+    intros.
+    subst.
+    assert (forall xs, e \in e :: xs).
+    intros.
+    simpl. auto.
+    auto.
+    split.
+    assumption.
+    Case "x \notin E".
+    unfold not in H.
+    assert (x \in E -> False).
+    intros.
+    apply H.
+    apply in_cons.
+    assumption.
+    unfold not.
+    assumption.
+Qed.
+
+
 Section Environment.
 
     Variable A: Type.
@@ -207,6 +235,14 @@ Section Environment.
       Case "cons".
         simpl in *.
         destruct (x == u); [ contradiction H | apply IHE ]; auto.
+    Qed.
+
+    Fact dom_distribute_cons : forall (E : list (atom * A)) (x : atom) (a : A),
+        dom ((x, a) :: E) = x :: dom E.
+    Proof.
+        intros.
+        simpl.
+        reflexivity.
     Qed.
 
     (** The function [imgs E] retrieves the values in [E]. [map f E] applies

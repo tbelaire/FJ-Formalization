@@ -14,6 +14,7 @@
     typing. *)
 
 Require Import Metatheory.
+Require Import AdditionalTactics.
 
 (** * Syntax *)
 
@@ -128,8 +129,10 @@ Inductive directed_ct : ctable -> Prop :=
         forall (C D : cname) (fs : flds) (ms: mths) (ct : ctable),
         directed_ct ct ->
         C \notin (keys ct) -> (* No duplicate bindings *)
-        D \in (keys ct) ->    (* No forward references *)
+        (D \in (keys ct) \/ D = Object) ->    (* No forward references *)
         directed_ct ((C, (D, fs, ms)) :: ct).
+
+Hint Constructors directed_ct.
 
 
 Lemma weaken_directed_ct : forall x v ct,
@@ -143,36 +146,53 @@ Qed.
 
 Example no_self_inheritance : forall CT : ctable,
     directed_ct CT ->
+    Object \notin dom CT ->
     forall C : cname,
     ~ exists fs ms, binds C (C,fs,ms) CT.
 Proof.
-    intros.
+    intros CT H ct_noobj C.
     unfold not.
     intros.
     destruct H0 as [fs].
     destruct H0 as [ms].
     induction H.
+    Case "ct_directed_nil".
     unfold binds in H0.
     absurd (None = Some (C, fs, ms)); discriminate.
+
+    Case "ct_directed_cons".
 
     destruct (C == C0) as [H3 | Hneq].
 
     (* C == C0 *)
-    rewrite <- H3 in * |-. clear H3 C0.
+    SCase "C == C0".
+    symmetry in H3; subst.
     unfold binds in H0.
     simpl in H0.
     rewrite eq_atom_true in H0.
     inversion H0.
+    destruct H2.
+    SSCase "D \in key ct".
     rewrite H4 in H2.
     contradiction.
+    SSCase "D = Object".
+    subst.
+    rewrite dom_distribute_cons in ct_noobj.
+    apply not_in_split in ct_noobj.
+    subst.
+    absurd (Object = Object); auto.
+    apply ct_noobj.
 
     (* C <> C0 *)
 
+    SCase "C <> C0".
     inversion H0.
-    apply IHdirected_ct.
+    rewrite dom_distribute_cons in ct_noobj.
+    apply not_in_split in ct_noobj.
+    apply IHdirected_ct.  apply ct_noobj.
     assert ((if C == C0 then
              Some (D, fs0, ms0)
-             else get C ct) = get C ct).
+             else Metatheory.get C ct) = Metatheory.get C ct).
     exact (eq_atom_false _ _ Hneq).
     rewrite H3 in H4.
     apply H4.
@@ -216,18 +236,104 @@ Proof.
     reflexivity.
 Qed.
 
-(* I'll come back to fix this when I need it.
-Fixpoint mbody_lookup (defs : list _ ) (m: mname) : option exp :=
-    match (defs ) with
-    | None => None
-    | Some (base, _, methods) => match get m methods with
-            | None => mbody m base
-            | Some (_, _, e) => Some e
+Fixpoint method_lookup_helper (CT: ctable) (m:mname) (ancestors: list cname) :=
+    match ancestors with
+    | nil => None
+    | C :: Cs => match Metatheory.get C CT with
+        | None => (* impossible *) None
+        | Some (_, _, ms) => match Metatheory.get m ms with
+            | None => method_lookup_helper CT m Cs
+            | Some (v) => Some (v)
+            end
         end
     end.
 
-Lemma binds_to_mbody {CT: ctable}: forall 
-    *)
+Fixpoint mtype_lookup {CT : ctable} {H: directed_ct CT}  (m:mname) (C:cname) :
+    option (list typ * typ) := match method_lookup_helper CT m (lineage CT C) with
+    | None => None
+    | Some (R, env, _) => Some ((List.map (snd (A:=mname) (B:=typ)) env), R)
+    end.
+
+Fixpoint mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
+    option (env * exp) := match method_lookup_helper CT m (lineage CT C) with
+    | None => None
+    | Some (R, env, body) => Some (env, body)
+    end.
+
+
+Module Example_lookup.
+    Variable A B C D : cname.
+    Variable foo : mname.
+(*
+Notation ctable := (list (cname * (cname * flds * mths))).
+Notation flds := (list (fname * typ)).
+Notation mths := (list (mname * (typ * env * exp))).
+Notation env := (list (var * typ)).
+*)
+    Definition CT : ctable := (
+        (A, (B, nil, nil)) ::
+        (B, (C, nil, (foo, (C,nil,(e_new C nil)))::nil)) ::
+        (C, (Object, nil, nil)) ::
+        nil ).
+
+    Lemma dir_CT : directed_ct CT.
+    Proof.
+        unfold CT.
+        apply directed_ct_cons.
+        apply directed_ct_cons.
+        apply directed_ct_cons.
+        apply directed_ct_nil.
+        auto.
+        right.
+        auto.
+        simpl.
+        admit.  (* A B C D, Distinct *)
+        left.
+        simpl.
+        left; reflexivity.
+        simpl.
+        admit.  (* A B C D, Distinct *)
+        simpl.
+        left.
+        left.
+        reflexivity.
+    Qed.
+
+
+
+
+    Example m_type_lookup :
+            mtype_lookup (CT:=CT) (H:=dir_CT) foo A = Some (nil, C).
+    Proof.
+        unfold mtype_lookup.
+        simpl.
+        rewrite eq_atom_true.
+        rewrite eq_atom_true.
+        rewrite eq_atom_true.
+        unfold method_lookup_helper.
+        simpl.
+        rewrite eq_atom_true.
+        rewrite eq_atom_true.
+        rewrite eq_atom_true.
+        rewrite eq_atom_false.
+        rewrite eq_atom_false.
+        rewrite eq_atom_false.
+        rewrite eq_atom_false.
+        rewrite eq_atom_false.
+        rewrite eq_atom_false.
+        simpl.
+        rewrite eq_atom_true.
+        simpl.
+        reflexivity.
+        admit.
+        admit.
+        admit.
+        admit.
+        admit.
+        admit.
+    Qed.
+End Example_lookup.
+
 
 (** * Typing *)
 
