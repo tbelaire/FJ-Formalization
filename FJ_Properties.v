@@ -10,6 +10,12 @@ Require Import Metatheory.
 Require Import FJ_Definitions.
 Require Import FJ_Facts.
 
+Lemma A_1_1 : forall m C D R (mparams : env) mbody1 mbody2,
+    sub C D ->
+    method D m (R, mparams, mbody1) ->
+    method C m (R, mparams, mbody2).
+
+
 (** * The weakening lemma (optional) *)
 
 Lemma weakening':
@@ -65,7 +71,15 @@ Module Properties (H: Hyps).
         wide_typing E (EE e') t.
     Proof.
       intros.
-      destruct H; inversion H1; subst; eauto using preservation_over_esc.
+      destruct H.
+      inversion H1. subst. eauto using preservation_over_esc.
+      inversion H1. subst. eauto using preservation_over_esc.
+      inversion H1. subst. eauto using preservation_over_esc.
+      inversion H1. subst. info_eauto using preservation_over_esc.
+      inversion H1. subst.
+      eapply wt_sub.
+      eapply t_upcast.
+
     Qed.
 
     (** ** Term substitutivity lemma *)

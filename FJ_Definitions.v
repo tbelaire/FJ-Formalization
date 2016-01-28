@@ -373,7 +373,7 @@ Hint Constructors sub.
 (** [typing E e t] holds when expression [e] has type [t] in environment [E].
     [wide_typing E e t] holds when [e] has a subtype of [t]. *)
 
-Inductive typing : env -> exp -> typ -> Prop :=
+Inductive typing : env -> exp -> typ -> Set :=
 | t_var : forall v t E,
     ok E ->
     binds v t E ->
@@ -409,11 +409,11 @@ Inductive typing : env -> exp -> typ -> Prop :=
     (~ sub D C) ->
     typing E (e_cast C e0) C
 
-with wide_typing : env -> exp -> typ -> Prop :=
+with wide_typing : env -> exp -> typ -> Set :=
 | wt_sub : forall E e t t',
     typing E e t -> sub t t' -> wide_typing E e t'
 
-with wide_typings : env -> list exp -> list typ -> Prop :=
+with wide_typings : env -> list exp -> list typ -> Set :=
 | wts_nil : forall E,
     ok E ->
     wide_typings E nil nil
@@ -423,6 +423,38 @@ with wide_typings : env -> list exp -> list typ -> Prop :=
     wide_typings E (e::es) (t::E0).
 
 Hint Constructors typing wide_typing wide_typings.
+
+Fixpoint has_downcast (E':env) (e':exp) (t':typ) (type : typing E' e' t') : bool := (match type with
+| t_var _ _ _ _ _ =>
+        true
+| t_field E e0 t0 t f H_typing H_field =>
+        has_downcast E e0 t0 H_typing
+| t_meth E E0 e0 b t0 t m es H_typing H_method H_wts =>
+        andb (has_downcast E e0 t0 H_typing)
+             (wide_typings_has_downcast E es (imgs E0) H_wts)
+| t_new E C fs es H_fields H_wts =>
+        wide_typings_has_downcast E es (imgs fs) H_wts
+| t_upcast E e0 C D H_typing H_sub =>
+        has_downcast E e0 D H_typing
+| t_downcast _ _ _ _ _ _ _ =>
+        false
+| t_stupidcast _ _ _ _ _ _ _ =>
+        false
+end)
+with wide_typing_has_downcast E e t (type: wide_typing E e t) : bool
+:= match type with
+| wt_sub E e t t' H_typing H_sub =>
+        has_downcast E e t H_typing
+end
+with wide_typings_has_downcast E es ts (type: wide_typings E es ts) : bool
+:= match type with
+| wts_nil E H_ok =>
+        true
+| wts_cons E E0 es e t H_wts H_wt =>
+        andb (wide_typing_has_downcast E e t H_wt)
+        (wide_typings_has_downcast E es E0 H_wts)
+end.
+
 
 (** ** Declaration typing *)
 
@@ -475,7 +507,7 @@ Hint Unfold ok_ctable.
 Fixpoint subst_exp (E : benv) (e : exp) {struct e} : exp :=
     match e with
     | e_var v =>
-        match get v E with
+        match Metatheory.get v E with
         | Some e' => e'
         | None => e_var v
         end
