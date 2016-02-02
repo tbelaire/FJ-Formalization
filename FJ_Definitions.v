@@ -47,17 +47,19 @@ Definition typ := cname.
    not included.
    We do have a class table CT, constructed without syntax ahead of time. *)
 
-Inductive exp : Set :=
-| e_var : var -> exp
-| e_field : exp -> fname -> exp
-| e_meth : exp -> mname -> list exp -> exp
-| e_new : cname -> list exp -> exp
-| e_cast : cname -> exp -> exp.
+Inductive exp_ : bool -> Set :=
+| e_var {b} : var -> exp_ b
+| e_field {b} : exp_ b -> fname -> exp_ b
+| e_meth {b} : exp_ b -> mname -> list (exp_ b) -> exp_ b
+| e_new {b} : cname -> list (exp_ b) -> exp_ b
+| e_cast {b} : cname -> exp_ b -> exp_ b
+| e_lib : exp_ true.
 
 (** ** Environments and class tables *)
 
 (** An [env] declares a number of variables and their types. A [benv] binds
     variables to expressions. *)
+Definition exp := exp_ false.
 
 Notation env := (list (var * typ)).
 Notation benv := (list (var * exp)).
@@ -454,6 +456,60 @@ with wide_typings_has_downcast E es ts (type: wide_typings E es ts) : bool
         andb (wide_typing_has_downcast E e t H_wt)
         (wide_typings_has_downcast E es E0 H_wts)
 end.
+
+(* REL operator *)
+
+Section REL.
+Parameter CT_A : ctable.
+Parameter CT_L : ctable.
+(* This has to be exp_ true, as they show up on the right side of REL *)
+Parameter LPT : list (exp_ true).
+
+Inductive REL : (exp_ false) -> (exp_ true) -> Prop :=
+| rel_field : forall (e : exp_ false) (e' : exp_ true) f,
+    REL e e' ->
+    REL (e_field e f) (e_field e' f)
+| rel_lib_field : forall (e : exp_ false) f,
+    REL e e_lib ->
+    (* TODO (declaring_class f) \in CT_L -> *)
+    REL (e_field e f) e_lib
+| rel_new : forall C
+        (es : list(exp_ false))
+        (e's : list(exp_ true)),
+    Forall2 REL es e's ->
+    (* TODO C \in CT' -> *)
+    REL (e_new C es) (e_new C e's)
+| rel_new_obj :
+    REL (e_new Object nil) (e_new Object nil)
+| rel_lib_new : forall (C : cname)
+        (es : list(exp_ false)),
+    Forall (fun e => REL e e_lib) es ->
+    C \in (dom CT_L) ->
+    REL (e_new C es) e_lib
+| rel_invk : forall m e es e' e's,
+    REL e e' ->
+    Forall2 REL es e's ->
+    REL (e_meth e m es) (e_meth e' m e's)
+| rel_lib_invk : forall m e es,
+    REL e e_lib ->
+    Forall (fun e => REL e e_lib) es ->
+    (* TODO  clean this up. *)
+    (exists C D fs (ms : mths),
+        binds C (D, fs, ms) CT_L /\ m \in (dom ms)) ->
+    REL (e_meth e m es) e_lib
+| rel_cast : forall C e e',
+    REL e e' ->
+    REL (e_cast C e) (e_cast C e')
+| rel_lib_cast : forall C e,
+    REL e e_lib ->
+    REL (e_cast C e) (e_lib)
+| rel_ltp : forall e e',
+    REL e e' ->
+    e' \in LPT ->
+    REL e e_lib.
+
+End REL.
+
 
 
 (** ** Declaration typing *)
