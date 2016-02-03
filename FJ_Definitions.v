@@ -67,19 +67,19 @@ Parameter with_lib : bool.
 
 Definition exp := exp_ with_lib.
 
-Notation env := (list (var * typ)).
-Notation benv := (list (var * exp)).
+Definition env := (list (var * typ)).
+Definition benv := (list (var * exp)).
 
 (** [flds] and [mths] map the names of fields and methods to their
     definitions. *)
 
-Notation flds := (list (fname * typ)).
-Notation mths := (list (mname * (typ * env * exp))).
+Definition flds := (list (fname * typ)).
+Definition mths := (list (mname * (typ * env * exp))).
 
 (** [ctable] maps the names of classes to their definitions. A class definition
     consists of a parent class and a number of fields and methods. *)
 
-Notation ctable := (list (cname * (cname * flds * mths))).
+Definition ctable := (list (cname * (cname * flds * mths))).
 
 (** We assume a fixed class table [CT]. *)
 
