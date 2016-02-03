@@ -59,7 +59,13 @@ Inductive exp_ : bool -> Set :=
 
 (** An [env] declares a number of variables and their types. A [benv] binds
     variables to expressions. *)
-Definition exp := exp_ false.
+Definition exp_a := exp_ false.
+Definition exp_l := exp_ false.
+
+Section GenericOverLib.
+Parameter with_lib : bool.
+
+Definition exp := exp_ with_lib.
 
 Notation env := (list (var * typ)).
 Notation benv := (list (var * exp)).
@@ -262,6 +268,7 @@ Fixpoint mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
     | Some (R, env, body) => Some (env, body)
     end.
 
+End GenericOverLib.
 
 Module Example_lookup.
     Variable A B C D : cname.
