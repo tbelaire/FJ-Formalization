@@ -14,7 +14,6 @@
     typing. *)
 
 Require Import Metatheory.
-Require Import AdditionalTactics.
 
 (** * Syntax *)
 
@@ -47,6 +46,7 @@ Definition typ := cname.
    not included.
    We do have a class table CT, constructed without syntax ahead of time. *)
 
+
 Inductive exp_ : bool -> Set :=
 | e_var {b} : var -> exp_ b
 | e_field {b} : exp_ b -> fname -> exp_ b
@@ -60,10 +60,10 @@ Inductive exp_ : bool -> Set :=
 (** An [env] declares a number of variables and their types. A [benv] binds
     variables to expressions. *)
 Definition exp_a := exp_ false.
-Definition exp_l := exp_ false.
+Definition exp_l := exp_ true.
 
 Section GenericOverLib.
-Parameter with_lib : bool.
+Variable with_lib : bool.
 
 Definition exp := exp_ with_lib.
 
@@ -83,7 +83,11 @@ Definition ctable := (list (cname * (cname * flds * mths))).
 
 (** We assume a fixed class table [CT]. *)
 
-Parameter CT : ctable.
+Parameter CT_A : ctable.
+Parameter CT_L : ctable.
+
+Definition CT := CT_A ++ CT_L.
+
 
 (** * Auxiliaries *)
 
@@ -164,26 +168,25 @@ Proof.
     destruct H0 as [fs].
     destruct H0 as [ms].
     induction H.
-    Case "ct_directed_nil".
+    - (* ct_directed_nil.*)
     unfold binds in H0.
     absurd (None = Some (C, fs, ms)); discriminate.
 
-    Case "ct_directed_cons".
 
+    - (* ct_directed_cons *)
     destruct (C == C0) as [H3 | Hneq].
 
-    (* C == C0 *)
-    SCase "C == C0".
+    + (* C == C0 *)
     symmetry in H3; subst.
     unfold binds in H0.
     simpl in H0.
     rewrite eq_atom_true in H0.
     inversion H0.
     destruct H2.
-    SSCase "D \in key ct".
+    * (* D \in key ct. *)
     rewrite H4 in H2.
     contradiction.
-    SSCase "D = Object".
+    * (* D = Object. *)
     subst.
     rewrite dom_distribute_cons in ct_noobj.
     apply not_in_split in ct_noobj.
@@ -191,9 +194,7 @@ Proof.
     absurd (Object = Object); auto.
     apply ct_noobj.
 
-    (* C <> C0 *)
-
-    SCase "C <> C0".
+    + (* C <> C0 *)
     inversion H0.
     rewrite dom_distribute_cons in ct_noobj.
     apply not_in_split in ct_noobj.
@@ -268,8 +269,7 @@ Fixpoint mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
     | Some (R, env, body) => Some (env, body)
     end.
 
-End GenericOverLib.
-
+(*
 Module Example_lookup.
     Variable A B C D : cname.
     Variable foo : mname.
@@ -342,6 +342,7 @@ Notation env := (list (var * typ)).
         admit.
     Qed.
 End Example_lookup.
+*)
 
 
 (** * Typing *)
@@ -467,10 +468,12 @@ end.
 (* REL operator *)
 
 Section REL.
-Parameter CT_A : ctable.
-Parameter CT_L : ctable.
+(* Variables (CT_A : ctable) (CT_L : ctable). *)
+
+(* TODO Libify *)
+Definition CT' := CT_A ++ CT_L.
 (* This has to be exp_ true, as they show up on the right side of REL *)
-Parameter LPT : list (exp_ true).
+Variable LPT : list (exp_ true).
 
 Inductive REL : (exp_ false) -> (exp_ true) -> Prop :=
 | rel_field : forall (e : exp_ false) (e' : exp_ true) f,
@@ -484,7 +487,7 @@ Inductive REL : (exp_ false) -> (exp_ true) -> Prop :=
         (es : list(exp_ false))
         (e's : list(exp_ true)),
     Forall2 REL es e's ->
-    (* TODO C \in CT' -> *)
+    C \in dom CT' ->
     REL (e_new C es) (e_new C e's)
 | rel_new_obj :
     REL (e_new Object nil) (e_new Object nil)
@@ -517,6 +520,8 @@ Inductive REL : (exp_ false) -> (exp_ true) -> Prop :=
 
 End REL.
 
+Check REL.
+
 
 
 (** ** Declaration typing *)
@@ -533,7 +538,7 @@ Definition can_override (D: cname) (m: mname) (t: typ) (E: env) : Prop :=
 Hint Unfold can_override.
 
 Definition ok_meth (C D: cname) (m: mname) (t: typ) (E: env) (e: exp) : Prop :=
-    can_override D m t E /\ wide_typing ((this,C)::E) e t.
+    can_override D m t E /\ (exists wt, wt = wide_typing ((this,C)::E) e t).
 
 Hint Unfold ok_meth.
 
@@ -566,18 +571,18 @@ Hint Unfold ok_ctable.
 
 (** [subst_exp E e] returns the term expression [e] where any occurrances of
     bound variables have been replaced by their bindings in environment [E]. *)
-
-Fixpoint subst_exp (E : benv) (e : exp) {struct e} : exp :=
+Fixpoint subst_exp (E : (list (var * exp_ with_lib))) (e : exp_ with_lib) {struct e} : exp_ with_lib :=
     match e with
-    | e_var v =>
+    | e_var _ v =>
         match Metatheory.get v E with
         | Some e' => e'
         | None => e_var v
         end
-    | e_field e0 f => e_field (subst_exp E e0) f
-    | e_meth e0 m es => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
-    | e_new C es => e_new C (List.map (subst_exp E) es)
-    | e_cast C e => e_cast C (subst_exp E e)
+    | e_field _ e0 f => e_field (subst_exp E e0) f
+    | e_meth _ e0 m es => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
+    | e_new _ C es => e_new C (List.map (subst_exp E) es)
+    | e_cast _ C e => e_cast C (subst_exp E e)
+    | e_lib => e_lib
     end.
 
 (** * Evaluation *)
@@ -653,6 +658,7 @@ Inductive value : exp -> Prop :=
     (forall e, In e es -> value e) -> value (e_new cn es).
 
 Hint Constructors value.
+End GenericOverLib.
 
 (** The following module defines the hypotheses of the safety argument. We
     assume that [Object] is not defined in the class table [CT] and that class
