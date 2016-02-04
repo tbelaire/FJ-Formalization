@@ -257,14 +257,16 @@ Fixpoint method_lookup_helper (CT: ctable) (m:mname) (ancestors: list cname) :=
         end
     end.
 
-Fixpoint mtype_lookup {CT : ctable} {H: directed_ct CT}  (m:mname) (C:cname) :
-    option (list typ * typ) := match method_lookup_helper CT m (lineage CT C) with
+Definition mtype_lookup {CT : ctable} {H: directed_ct CT}  (m:mname) (C:cname) :
+    option (list typ * typ) :=
+    match method_lookup_helper CT m (lineage CT C) with
     | None => None
     | Some (R, env, _) => Some ((List.map (snd (A:=mname) (B:=typ)) env), R)
     end.
 
-Fixpoint mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
-    option (env * exp) := match method_lookup_helper CT m (lineage CT C) with
+Definition mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
+    option (env * exp) :=
+    match method_lookup_helper CT m (lineage CT C) with
     | None => None
     | Some (R, env, body) => Some (env, body)
     end.
@@ -520,8 +522,6 @@ Inductive REL : (exp_ false) -> (exp_ true) -> Prop :=
 
 End REL.
 
-Check REL.
-
 
 
 (** ** Declaration typing *)
@@ -571,18 +571,18 @@ Hint Unfold ok_ctable.
 
 (** [subst_exp E e] returns the term expression [e] where any occurrances of
     bound variables have been replaced by their bindings in environment [E]. *)
-Fixpoint subst_exp (E : (list (var * exp_ with_lib))) (e : exp_ with_lib) {struct e} : exp_ with_lib :=
-    match e with
-    | e_var _ v =>
+Fixpoint subst_exp {b:bool} (E : (list (var * exp_ b))) (e : exp_ b) {struct e} : exp_ b :=
+    match e in exp_ b return list (var * exp_ b) -> exp_ b with
+    | e_var _ v => fun E =>
         match Metatheory.get v E with
         | Some e' => e'
         | None => e_var v
         end
-    | e_field _ e0 f => e_field (subst_exp E e0) f
-    | e_meth _ e0 m es => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
-    | e_new _ C es => e_new C (List.map (subst_exp E) es)
-    | e_cast _ C e => e_cast C (subst_exp E e)
-    | e_lib => e_lib
+    | e_field _ e0 f => fun _ => e_field (subst_exp E e0) f
+    | e_meth _ e0 m es => fun _ => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
+    | e_new _ C es => fun _ => e_new C (List.map (subst_exp E) es)
+    | e_cast _ C e => fun _ => e_cast C (subst_exp E e)
+    | e_lib => fun _ => e_lib
     end.
 
 (** * Evaluation *)
