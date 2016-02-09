@@ -62,6 +62,17 @@ Inductive exp_ : bool -> Set :=
 Definition exp_a := exp_ false.
 Definition exp_l := exp_ true.
 
+Fixpoint embed_exp {b} (e : exp_ b) : exp_l :=
+    match e with
+    | e_var _ v => e_var v
+    | e_field _ o f => e_field (embed_exp o) f
+    | e_meth _ o m args =>
+            e_meth (embed_exp o) m (List.map embed_exp args)
+    | e_new _ C args => e_new C (List.map embed_exp args)
+    | e_cast _ C e => e_cast C (embed_exp e)
+    | e_lib => e_lib
+    end.
+
 Section GenericOverLib.
 Variable with_lib : bool.
 
@@ -87,6 +98,10 @@ Parameter CT_A : ctable.
 Parameter CT_L : ctable.
 
 Definition CT := CT_A ++ CT_L.
+
+Definition CT_L' := CT_L.
+
+Definition CT' := CT_A ++ CT_L'.
 
 
 (** * Auxiliaries *)
@@ -270,6 +285,28 @@ Definition mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
     | None => None
     | Some (R, env, body) => Some (env, body)
     end.
+
+Definition declares_m (C:cname) (m:mname) : Prop :=
+    (exists D fs ms, binds C (D, ms, fs) CT /\ m \in dom ms).
+
+(* TODO parameterize over CT and CT'? *)
+Definition declares_f (C:cname) (f:fname) : Prop :=
+    (exists D fs ms, binds C (D, ms, fs) CT /\ f \in dom fs).
+
+Fixpoint constructor_helper (CT: ctable) (ancestors: list cname) :=
+    match ancestors with
+    | nil => nil
+    | C :: Cs => match Metatheory.get C CT with
+        | None => (* impossible *) nil
+        | Some (_, fs, _) => 
+                (constructor_helper CT Cs) ++ fs
+        end
+    end.
+
+Definition constructor (C:cname) : list (fname * typ) :=
+    constructor_helper CT (lineage CT C).
+
+
 
 (*
 Module Example_lookup.
@@ -472,8 +509,6 @@ end.
 Section REL.
 (* Variables (CT_A : ctable) (CT_L : ctable). *)
 
-(* TODO Libify *)
-Definition CT' := CT_A ++ CT_L.
 (* This has to be exp_ true, as they show up on the right side of REL *)
 Variable LPT : list (exp_ true).
 
@@ -483,6 +518,7 @@ Inductive REL : (exp_ false) -> (exp_ true) -> Prop :=
     REL (e_field e f) (e_field e' f)
 | rel_lib_field : forall (e : exp_ false) f,
     REL e e_lib ->
+    
     (* TODO (declaring_class f) \in CT_L -> *)
     REL (e_field e f) e_lib
 | rel_new : forall C
@@ -578,12 +614,12 @@ Fixpoint subst_exp {b:bool} (E : (list (var * exp_ b))) (e : exp_ b) {struct e} 
         | Some e' => e'
         | None => e_var v
         end
-    | e_field _ e0 f => fun _ => e_field (subst_exp E e0) f
-    | e_meth _ e0 m es => fun _ => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
-    | e_new _ C es => fun _ => e_new C (List.map (subst_exp E) es)
-    | e_cast _ C e => fun _ => e_cast C (subst_exp E e)
-    | e_lib => fun _ => e_lib
-    end.
+    | e_field _ e0 f => fun E => e_field (subst_exp E e0) f
+    | e_meth _ e0 m es => fun E => e_meth (subst_exp E e0) m (List.map (subst_exp E) es)
+    | e_new _ C es => fun E => e_new C (List.map (subst_exp E) es)
+    | e_cast _ C e => fun E => e_cast C (subst_exp E e)
+    | e_lib => fun E => e_lib
+    end E.
 
 (** * Evaluation *)
 
@@ -658,6 +694,62 @@ Inductive value : exp -> Prop :=
     (forall e, In e es -> value e) -> value (e_new cn es).
 
 Hint Constructors value.
+
+Definition libify {A} : list A -> list exp_l := (List.map (fun _ => e_lib)).
+
+Reserved Notation "A ->> B" (no associativity, at level 50).
+
+Inductive Ave_Reduce : (exp_l * list exp_l) -> (exp_l * list exp_l) -> Prop :=
+| ra_fj :  forall e e' (LPT : list exp_l),
+     eval e e' ->
+     (embed_exp e, LPT) ->> (embed_exp e', LPT)
+| ra_field : forall C d f LPT,
+    C \in dom CT_L' ->
+    declares_f C f ->
+    (d, LPT) ->> (d, (e_field e_lib f) :: LPT)
+| ra_new : forall C d LPT,
+    C \in dom CT_L' ->
+    (d, LPT) ->> (d, (e_new C (libify (constructor C))) :: LPT)
+| ra_invk : forall C m t e env d LPT,
+    C \in dom CT_L' ->
+    (* TODO Duplicate hyps ? *)
+    declares_m C m ->
+    method C m (t, env, e) ->
+    (d, LPT) ->> (d, (e_meth e_lib m (libify env) :: LPT))
+| ra_cast : forall C LPT,
+    (e_cast C e_lib, LPT) ->> (e_lib, LPT)
+| ra_lib_invk : forall C m es ds LPT,
+
+    (* TODO mresolve ...? *)
+    (e_meth (e_new C es) m ds, LPT) ->> (e_lib, (e_new C es) :: ds ++ LPT)
+| ra_return : forall e LPT,
+    e \in LPT ->
+    (e_lib, LPT) ->> (e, LPT)
+| ra_sub : forall d e e' LPT LPT',
+    e \in LPT ->
+    (e, LPT) ->> (e', LPT') ->
+    (d, LPT) ->> (d, e' :: LPT ++ LPT')
+| rac_field : forall f e e' LPT LPT',
+    (e, LPT) ->> (e', LPT') ->
+    (e_field e f, LPT) ->> (e_field e' f, LPT ++ LPT')
+| rac_invk_recv : forall m e e' es LPT LPT',
+    (e, LPT) ->> (e', LPT') ->
+    (e_meth e m es, LPT) ->> (e_meth e' m es, LPT ++ LPT')
+| rac_invk_arg : forall m e elo ei ei' ehi LPT LPT',
+    (ei, LPT) ->> (ei', LPT') ->
+    (e_meth e m (elo ++ ei  :: ehi), LPT) ->>
+    (e_meth e m (elo ++ ei' :: ehi), LPT ++ LPT')
+| rac_new_arg : forall C elo ei ei' ehi LPT LPT',
+    (ei, LPT) ->> (ei', LPT') ->
+    (e_new C (elo ++ ei  :: ehi), LPT) ->>
+    (e_new C (elo ++ ei' :: ehi), LPT ++ LPT')
+| rac_cast : forall C e e' LPT LPT',
+    (e, LPT) ->> (e', LPT') ->
+    (e_cast C e, LPT) ->> (e_cast C e', LPT ++ LPT')
+    where "A ->> B" := (Ave_Reduce A B).
+
+
+
 End GenericOverLib.
 
 (** The following module defines the hypotheses of the safety argument. We
@@ -665,8 +757,9 @@ End GenericOverLib.
     table [CT] is well-formed. *)
 
 Module Type Hyps.
-    Parameter ct_noobj: Object \notin dom CT.
-    Parameter ok_ct: ok_ctable CT.
+    Parameter with_lib : bool.
+    Parameter ct_noobj: Object \notin dom (CT with_lib).
+    Parameter ok_ct: ok_ctable with_lib (CT with_lib).
 End Hyps.
 
 (** Safety of the language may be demonstrated through an implementation of the
