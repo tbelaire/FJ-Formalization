@@ -41,6 +41,14 @@ Qed.
 
 Definition In_atom_list_dec := In_dec eq_atom_dec.
 
+Lemma cons_app_equiv {A: Type} : forall (x:A) xs,
+    x :: xs = (x :: nil) ++ xs.
+Proof.
+    intros.
+    simpl.
+    reflexivity.
+Qed.
+
 (** * Environments *)
 
 (** An environment maps atoms to some value of an variable type [A]. We model
@@ -195,12 +203,66 @@ Section Environment.
           auto.
     Qed.
 
+    Fact nobinds_weaken : forall x y a E,
+        no_binds x ((y, a) :: E) ->
+        no_binds x E.
+    Proof.
+        intros.
+        induction E.
+        apply nobinds_nil.
+        destruct a0 as [z b].
+        unfold no_binds in H.
+        unfold get in H.
+        fold get in H.
+        destruct (x == y).
+        discriminate.
+        unfold no_binds.
+        unfold get.
+        fold get.
+        assumption.
+    Qed.
+
+
+    Fact nobinds_split_app : forall x E F,
+        no_binds x (E ++ F) ->
+        no_binds x E /\ no_binds x F.
+    Proof.
+        intros.
+        induction E.
+        - (* nil *)
+        split.
+        apply nobinds_nil.
+        rewrite app_nil_l in H.
+        assumption.
+        - (* cons *)
+        destruct a as [y a].
+        destruct (x == y).
+        + (* x = y *)
+        subst.
+        unfold no_binds in H.
+        unfold get in H.
+        simpl in H.
+        rewrite eq_atom_true in H.
+        discriminate.
+        + (* x <> y *)
+        assert (no_binds x E /\ no_binds x F).
+        apply IHE.
+        apply nobinds_weaken with (y:=y) (a:=a).
+        assumption.
+        split.
+        apply nobinds_cons.
+        tauto.
+        tauto.
+        tauto.
+    Qed.
+
+
     (** The functions [keys E] and [dom E] retrieve the atoms that are bound in
         the environment [E]. *)
 
     Definition keys (E: list (atom * A)) : list atom :=
         List.map (fun p => match p with (x,_) => x end) E.
-    
+
     Definition dom := keys.
 
     Fact dom_binds: forall (E : list (atom * A)) (x : atom),
@@ -277,6 +339,27 @@ Section Environment.
           apply binds_other; [ auto | assumption ].
     Qed.
 
+    Fact binds_concat_ok_2 : forall x a E F,
+      binds x a F -> ok (F ++ E) -> binds x a (F ++ E).
+    Proof.
+      intros x a E F.
+      induction E as [|(y,b)]; simpl; intros H Ok.
+      Case "nil".  rewrite app_nil_r. assumption.
+      Case "cons".
+        inversion Ok.
+        + (* ok nil *)
+        exfalso.
+        symmetry in H1.
+        apply app_eq_nil in H1.
+        absurd ((y, b) :: E = nil).
+        discriminate.
+        tauto.
+        + (* ok  (F ++ (y, b) :: E) *)
+        rewrite H0.
+        apply binds_head.
+        assumption.
+    Qed.
+
     Fact binds_weaken : forall x a E F G,
       binds x a (G ++ E) ->
       ok (G ++ F ++ E) ->
@@ -295,6 +378,87 @@ Section Environment.
           apply binds_other with (2:=n).
           apply IHG; [ eauto using binds_elim_neq | assumption ].
     Qed.
+
+
+    Fact ok_split_app : forall E F,
+        ok (F ++ E) ->
+        ok F /\ ok E.
+    Proof.
+        intros.
+        induction F.
+        - (* nil *)
+        split.
+        exact ok_nil.
+        rewrite app_nil_l in H.
+        assumption.
+        - (* cons *)
+        inversion H.
+        subst.
+        assert (ok F /\ ok E).
+        apply IHF. assumption.
+        destruct H0.
+        split.
+        + (* F *)
+        apply ok_cons.
+        assumption.
+        exact (proj1 (nobinds_split_app _ _ H3)).
+        + (* E *)
+        assumption.
+    Qed.
+
+    Fact ok_disjoint_app : forall a b x y E F,
+        binds x a E ->
+        binds y b F ->
+        ok (E ++ F) ->
+        x <> y.
+    Proof.
+      intros.
+      induction E.
+      - (* nil *)
+      exfalso. eapply binds_nil. apply H.
+      - (* cons *)
+      destruct a0 as [z a'].
+      destruct (z == x).
+      + (* z = x, x in head of E *)
+      subst.
+      rewrite <- app_comm_cons in H1.  (* (x :: E) ++ F = x :: (E ++ F) *)
+      inversion H1.
+      subst.
+
+      assert (H_y : binds y b (E ++ F)).
+      apply binds_concat_ok; assumption; assumption.
+      unfold no_binds in H6.
+      unfold binds in H_y.
+      unfold not. intros.
+      rewrite H2 in H6.
+      rewrite H6 in H_y.
+      absurd (None = Some b).
+      discriminate.
+      discriminate.
+      + (* z <> x *)
+      apply IHE.
+      eapply binds_elim_neq with (y := z).
+      *
+      unfold not.
+      intros.
+      symmetry in H2.
+      contradiction.
+      *
+      exact H.
+      *
+      rewrite <- app_comm_cons in H1.  (* (x :: E) ++ F = x :: (E ++ F) *)
+      rewrite cons_app_equiv in H1.
+      eapply ok_split_app.
+      exact H1.
+    Qed.
+
+    Fact ok_binds_once : forall x a E F,
+        ok (E ++ F) ->
+        binds x a E ->
+        no_binds x F.
+    Admitted.
+
+
 
    (** [forall_env P E] holds when proposition [P x v] holds for all bindings
        [(x, v)] in environment [E]. *)
