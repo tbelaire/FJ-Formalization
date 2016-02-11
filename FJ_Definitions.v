@@ -162,6 +162,11 @@ Inductive directed_ct : ctable -> Prop :=
 Hint Constructors directed_ct.
 
 
+(* TODO is it a good idea to have this as global hypotheis? *)
+Hypothesis CT_is_directed : directed_ct CT.
+Hypothesis CT_L_is_directed : directed_ct CT_L.
+
+
 Lemma weaken_directed_ct : forall x v ct,
     directed_ct ((x, v) :: ct) ->
     directed_ct ct.
@@ -170,6 +175,85 @@ Proof.
     inversion H.
     assumption.
 Qed.
+
+Lemma directed_binds_unique : forall C D fs ms CT,
+    Object \notin dom CT ->
+    directed_ct CT ->
+    binds C (D, fs, ms) CT ->
+    C <> D.
+Proof.
+    intros C D fs ms CT0 H_object H_dir H_binds.
+    unfold not.
+    intros.
+    subst.
+    induction H_dir.
+    apply binds_nil in H_binds; assumption.
+    destruct (C == D).
+    - subst.
+    apply binds_elim_eq in H_binds.
+    inversion H_binds.
+    symmetry in H2.
+    subst.
+    destruct H0.
+    contradiction.
+    subst.
+    unfold not in H_object.
+    apply H_object.
+    unfold In.
+    simpl.
+    auto.
+    - (* Induction C <> D *)
+    apply IHH_dir.
+    unfold not in H_object.
+    unfold In in H_object.
+    simpl in H_object.
+    fold In in H_object.
+    auto. (* yay *)
+    eapply binds_elim_neq with (y:= C).
+    auto.
+    exact H_binds.
+Qed.
+
+Lemma directed_binds : forall C D fs ms CT,
+    directed_ct CT ->
+    binds C (D, fs, ms) CT ->
+    D \in dom CT \/ D = Object.
+Proof.
+    intros.
+    induction H.
+    apply binds_nil in H0.
+    auto.
+
+    destruct (C0 == C).
+    - (* == *)
+    subst.
+    apply binds_elim_eq in H0.
+    assert (D0 = D).
+        inversion H0.
+        reflexivity.
+    subst.
+    destruct H2.
+    + left.
+    apply in_cons.
+    auto.
+    + right.
+    assumption.
+    - (* <> *)
+    assert (H_help : D \in dom ct \/ D = Object
+            -> D \in dom ((C0, (D0, fs0, ms0)) :: ct) \/ D = Object).
+        intros.
+        destruct H3.
+        left.
+        unfold In.
+        simpl; auto.
+        auto.
+    apply H_help.
+    apply IHdirected_ct.
+    eapply binds_elim_neq with (y:=C0).
+    auto.
+    exact H0.
+Qed.
+
 
 Example no_self_inheritance : forall CT : ctable,
     directed_ct CT ->
@@ -267,7 +351,7 @@ Fixpoint method_lookup_helper (CT: ctable) (m:mname) (ancestors: list cname) :=
         | None => (* impossible *) None
         | Some (_, _, ms) => match Metatheory.get m ms with
             | None => method_lookup_helper CT m Cs
-            | Some (v) => Some (v)
+            | Some (v) => Some (C, v)
             end
         end
     end.
@@ -276,15 +360,23 @@ Definition mtype_lookup {CT : ctable} {H: directed_ct CT}  (m:mname) (C:cname) :
     option (list typ * typ) :=
     match method_lookup_helper CT m (lineage CT C) with
     | None => None
-    | Some (R, env, _) => Some ((List.map (snd (A:=mname) (B:=typ)) env), R)
+    | Some (C, (R, env, _)) => Some ((List.map (snd (A:=mname) (B:=typ)) env), R)
     end.
 
 Definition mbody_lookup {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
     option (env * exp) :=
     match method_lookup_helper CT m (lineage CT C) with
     | None => None
-    | Some (R, env, body) => Some (env, body)
+    | Some (C, (R, env, body)) => Some (env, body)
     end.
+
+Definition mresolve {CT : ctable} {H: directed_ct CT} (m:mname) (C:cname) :
+    option (cname) :=
+    match method_lookup_helper CT m (lineage CT C) with
+    | None => None
+    | Some (C, _) => Some C
+    end.
+
 
 Definition declares_m (C:cname) (m:mname) : Prop :=
     (exists D fs ms, binds C (D, ms, fs) CT /\ m \in dom ms).
@@ -390,17 +482,34 @@ End Example_lookup.
 
 (** [ok_type t] holds when [t] is a well-formed type. *)
 
-Inductive ok_type : typ -> Prop :=
-| ok_obj: ok_type Object
-| ok_in_ct: forall t, t \in dom CT -> ok_type t.
+Inductive ok_type (CT:ctable) : typ -> Prop :=
+| ok_obj: @ok_type CT Object
+| ok_in_ct: forall t, t \in dom CT -> @ok_type CT t.
 
 Hint Constructors ok_type.
+
+Lemma ok_subtable : forall CT C D p,
+    D <> C ->
+    @ok_type ((D, p) :: CT) C->
+    @ok_type CT C.
+Proof.
+    intros.
+    destruct H0 as [|C].
+    apply ok_obj.
+    assert (C \in dom CT0).
+    unfold In in H0.
+    simpl in H0.
+    unfold In.
+    tauto.
+    apply ok_in_ct.
+    assumption.
+Qed.
 
 (** ** Subtyping *)
 
 (** [extends C D] holds if [C] is a direct subclass of [D]. *)
 
-Definition extends (C D : cname) : Prop :=
+Definition extends (CT:ctable) (C D : cname) : Prop :=
     exists fs, exists ms, binds C (D,fs,ms) CT.
 
 Hint Unfold extends.
@@ -410,12 +519,142 @@ Hint Unfold extends.
 
 (* (S-Ref) (S-Trans) (S-Sub) are defined here. *)
 
-Inductive sub : typ -> typ -> Prop :=
+Inductive sub {CT:ctable} : typ -> typ -> Prop :=
 | sub_refl : forall t, sub t t
 | sub_trans : forall t1 t2 t3, sub t1 t2 -> sub t2 t3 -> sub t1 t3
-| sub_extends : forall C D, extends C D -> sub C D.
+| sub_extends : forall C D, @extends CT C D -> sub C D.
 
 Hint Constructors sub.
+
+(* Rest of the Lineage facts *)
+
+Lemma directed_ok : forall CT C D fs ms,
+    directed_ct CT ->
+    binds C (D, fs, ms) CT ->
+    @ok_type CT D.
+Proof.
+    intros.
+    clear CT_is_directed CT_L_is_directed.
+    induction CT0.
+    - (* nil *)
+    unfold binds in H0.
+    unfold get in H0.
+    discriminate.
+    - (* cons *)
+    destruct a as [E [[F fs'] ms']].
+    destruct (E == C) as [| H_neq].
+    + (* = *)
+    subst.
+    inversion H.
+    subst.
+    assert (D = F).
+        unfold binds in H0.
+        unfold get in H0.
+        rewrite eq_atom_true in H0.
+        inversion H0.
+        reflexivity.
+    symmetry in H1.
+    subst.
+    destruct H8.
+    * (* *)
+    apply ok_in_ct.
+    unfold dom.
+    apply in_cons.
+    assumption.
+    * (* Object *)
+    subst.
+    apply ok_obj.
+
+    + (* <> *)
+    assert (binds C (D, fs, ms) CT0).
+        eapply binds_elim_neq with (y:= E).
+        auto.
+        exact H0.
+    eapply directed_binds in H1.
+    destruct H1.
+    apply ok_in_ct.
+    apply in_cons; auto.
+    subst.
+    apply ok_obj.
+    eapply weaken_directed_ct.
+    exact H.
+Qed.
+
+Theorem ClassTable_ind {CT :ctable } : forall P : cname -> Prop,
+    directed_ct CT ->
+    P Object ->
+    (forall (C D : cname),
+      ok_type CT D ->
+      P D -> @extends CT C D -> P C) ->
+    (forall C: cname, ok_type CT C -> P C).
+Proof.
+    clear CT_is_directed CT_L_is_directed.
+    intros P H_directed_ct H_Obj H_Ind C H_ok.
+    generalize H_ok. clear H_ok.
+    generalize C. clear C.
+    induction CT as [| [D [[E fs] ms]] CT'].
+    - (* nil *)
+    intros C H_ok.
+    destruct H_ok as [| C H_in].
+    assumption.
+    simpl in H_in.
+    exfalso; assumption.
+    - (* cons *)
+    intros C H_ok.
+    destruct (D == C).
+    + (* eq Going to use H_Ind *)
+    subst.
+    admit.
+    + (* neq  Going to use IHCT' as we've got a smaller CT now. *)
+    apply IHCT'.
+    * exact (weaken_directed_ct _ _ _ H_directed_ct).
+    * intros C0 D0 H_ok' H_D0 H_extends.
+    eapply H_Ind with (D0 := D0).
+    destruct H_ok'.
+    apply ok_obj.
+    apply ok_in_ct.
+    apply in_cons.
+    auto.
+
+    assumption.
+    unfold extends.
+    unfold extends in H_extends.
+    induction H_extends as [fs' [ms' H_binds]].
+    exists fs'.
+    exists ms'.
+    destruct (C0 == D).
+    (* eq *)
+    subst.
+    (* Contradiction , we've bound D twice, with D0 and E *)
+    exfalso.
+    inversion H_directed_ct.
+    subst.
+    apply binds_In in H_binds.
+    contradiction.
+    (* neq *)
+    refine (binds_other _ H_binds _).
+    auto.
+    * (* Last argument of IHCT' *)
+    exact (ok_subtable _ _ _ _ n H_ok).
+Qed.
+
+
+
+Lemma sub_lineage : forall C D,
+    @sub CT C D ->
+    D \in lineage CT C.
+Proof.
+    intros.
+Abort.
+
+
+Lemma lineage_subs: forall C D,
+    D \in lineage CT C ->
+    @sub CT C D.
+Proof.
+    intros.
+Abort.
+
 
 (** ** Term expression typing *)
 
@@ -747,6 +986,94 @@ Inductive Ave_Reduce : (exp_l * list exp_l) -> (exp_l * list exp_l) -> Prop :=
     (e, LPT) ->> (e', LPT') ->
     (e_cast C e, LPT) ->> (e_cast C e', LPT ++ LPT')
     where "A ->> B" := (Ave_Reduce A B).
+
+
+
+
+
+(* Proof of Averroes things *)
+
+Lemma ancestor_in_CT_A : forall A C,
+    A \in lineage CT C ->
+    A \in dom CT_A ->
+    C \in dom CT_A.
+Proof.
+    intros A C H H_CT_A.
+    assert (H_ok : ok CT). apply directed_is_ok; assumption.
+    unfold CT in *|- *.
+
+    assert (H_A_not_CT_L : A \notin dom CT_L).
+        unfold not.
+        intros H_CT_L.
+        apply dom_binds in H_CT_A.
+        apply dom_binds in H_CT_L.
+        induction H_CT_A as [x H_binds_CT_A].
+        induction H_CT_L as [y H_binds_CT_L].
+        absurd (A = A).
+        exact (ok_disjoint_app H_binds_CT_A H_binds_CT_L H_ok).
+        reflexivity.
+
+    induction CT_A.
+    unfold dom in H_CT_A.
+    unfold keys in H_CT_A.
+    simpl in H_CT_A.
+    exfalso; assumption.
+    destruct a as [B p].
+    destruct (B == C).
+    subst.
+
+
+
+
+    assert (exists x, binds A x CT_A).
+        apply dom_binds; assumption.
+    induction H2 as [x].
+    assert (exists y, binds A y CT_L).
+        apply dom_binds; assumption.
+    induction H3 as [y].
+    assert (binds A y (CT_A ++ CT_L)).
+    apply binds_concat_ok.
+    assumption.
+    assumption.
+    assert (binds A x (CT_A ++ CT_L)).
+    apply binds_head; assumption.
+    assert (x = y).
+    exact (binds_fun H5 H4).
+    subst.
+    
+
+
+    
+
+
+
+
+
+Lemma mresolve_in_CT_A : forall m C C',
+    @mresolve CT CT_is_directed m C = Some(C') ->
+    C' \in dom CT_A ->
+    C \in dom CT_A.
+Proof.
+    intros.
+    unfold mresolve in H.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

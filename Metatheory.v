@@ -452,10 +452,33 @@ Section Environment.
       exact H1.
     Qed.
 
+    Fact ok_binds_cons : forall x a F,
+        ok ((x, a) :: F) ->
+        binds x a ((x, a) :: F) ->
+        no_binds x F.
+    Proof.
+        intros.
+        inversion H.
+        subst.
+        assumption.
+    Qed.
+
     Fact ok_binds_once : forall x a E F,
         ok (E ++ F) ->
         binds x a E ->
         no_binds x F.
+    Proof.
+        intros.
+        induction E.
+        apply binds_nil in H0.
+        exfalso. auto.
+
+        destruct a0 as [y b].
+        destruct (y == x).
+        subst.
+
+
+
     Admitted.
 
 
