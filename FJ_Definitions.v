@@ -253,6 +253,87 @@ Inductive sub_ {CT:ctable} : typ -> typ -> Prop :=
 
 Hint Constructors sub_.
 
+Lemma no_self_inheritance : forall CT : ctable,
+    directed_ct CT ->
+    Object \notin dom CT ->
+    forall C : cname,
+    ~ exists fs ms, binds C (C,fs,ms) CT.
+Proof.
+    intros CT H ct_noobj C.
+    unfold not.
+    intros.
+    destruct H0 as [fs].
+    destruct H0 as [ms].
+    induction H.
+    - (* ct_directed_nil.*)
+    unfold binds in H0.
+    absurd (None = Some (C, fs, ms)); discriminate.
+
+
+    - (* ct_directed_cons *)
+    destruct (C == C0) as [H3 | Hneq].
+
+    + (* C == C0 *)
+    symmetry in H3; subst.
+    unfold binds in H0.
+    simpl in H0.
+    rewrite eq_atom_true in H0.
+    inversion H0.
+    destruct H2.
+    * (* D \in key ct. *)
+    rewrite H4 in H2.
+    contradiction.
+    * (* D = Object. *)
+    subst.
+    rewrite dom_distribute_cons in ct_noobj.
+    apply not_in_split in ct_noobj.
+    subst.
+    absurd (Object = Object); auto.
+    apply ct_noobj.
+
+    + (* C <> C0 *)
+    inversion H0.
+    rewrite dom_distribute_cons in ct_noobj.
+    apply not_in_split in ct_noobj.
+    apply IHdirected_ct.  apply ct_noobj.
+    assert ((if C == C0 then
+             Some (D, fs0, ms0)
+             else Metatheory.get C ct) = Metatheory.get C ct).
+    exact (eq_atom_false _ _ Hneq).
+    rewrite H3 in H4.
+    apply H4.
+Qed.
+
+Lemma distinct_parent : forall CT C D fs ms,
+    directed_ct CT ->
+    Object \notin dom CT ->
+    binds C (D,fs,ms) CT ->
+    C <> D.
+Proof.
+    intros CT C D fs ms H_directed H_noobj H_binds.
+    unfold not.
+    intros H_eq.
+    subst.
+    absurd ( (exists (fs : flds) (ms : mths), binds D (D, fs, ms) CT)).
+    + refine (no_self_inheritance CT H_directed H_noobj _ ).
+    + exists fs; exists ms. auto.
+Qed.
+
+
+Lemma directed_is_ok : forall ct,
+    directed_ct ct -> ok ct.
+Proof.
+    intros.
+    induction H.
+    auto.
+    pose (dom_binds_neg ct C H0) as H3.
+    apply ok_cons.
+    assumption.
+    unfold no_binds.
+    assumption.
+Qed.
+
+
 (* Rest of the Lineage facts *)
 
 Lemma directed_ok : forall CT C D fs ms,
@@ -308,13 +389,15 @@ Qed.
 
 Theorem ClassTable_ind {CT :ctable } : forall P : cname -> Prop,
     directed_ct CT ->
+    Object \notin dom CT ->
     P Object ->
     (forall (C D : cname),
       ok_type_ CT D ->
-      P D -> @extends_ CT C D -> P C) ->
+      @extends_ CT C D ->
+      P D -> P C) ->
     (forall C: cname, ok_type_ CT C -> P C).
 Proof.
-    intros P H_directed_ct H_Obj H_Ind C H_ok.
+    intros P H_directed_ct H_noobj H_Obj H_Ind C H_ok.
     generalize H_ok. clear H_ok.
     generalize C. clear C.
     induction CT as [| [D [[E fs] ms]] CT'].
@@ -329,11 +412,107 @@ Proof.
     destruct (D == C).
     + (* eq Going to use H_Ind *)
     subst.
-    admit.
+    (* Plan: use H_Ind to solve, 
+        as we can show P E by IHCT *)
+
+    refine (H_Ind C E _ _ _).
+    * (* E is OK because of directed_ct. *) {
+    inversion H_directed_ct.
+    subst.
+    destruct H6.
+    - (* in keys *)
+    apply ok_in_ct.
+    unfold dom.
+    unfold keys.
+    simpl.
+    auto.
+    - (* is object *)
+    subst.
+    apply ok_obj.
+    }
+    * (* weaken extends *) {
+    unfold extends_.
+    exists fs.
+    exists ms.
+    unfold binds.
+    simpl.
+    auto.
+    }
+    * (* Show (P E) by IHCT' *) {
+        eapply IHCT'.
+        - exact (weaken_directed_ct _ _ _ H_directed_ct).
+        - (* object \notin dom CT *) {
+        unfold not.
+        intro H_Obj_In.
+        unfold In in H_noobj.
+        simpl in H_noobj.
+        auto.
+        }
+        - (* smaller H_Ind *) {
+        intros C0 D0 H_ok' H_extends H_D0.
+        apply H_Ind with (D := D0).
+        + destruct H_ok'.
+        * apply ok_obj.
+        * apply ok_in_ct.
+        apply in_cons.
+        auto.
+        + unfold extends_.
+        induction H_extends as [fs' [ms' H_binds]].
+        exists fs'.
+        exists ms'.
+
+        destruct (C0 == C).
+        (* eq *)
+        subst.
+        (* Contradiction , we've bound D twice, with D0 and E *)
+        exfalso.
+        inversion H_directed_ct.
+        subst.
+        apply binds_In in H_binds.
+        contradiction.
+        (* neq *)
+        refine (binds_other _ _ _).
+        auto.
+        unfold not.
+        intro.
+        symmetry in H.
+        contradiction H.
+        +
+        assumption.
+        }
+        - (* ok_type E *) {
+        refine (_ (directed_ok _ C E fs ms H_directed_ct _)).
+        + (* ok_type chaining *)
+        assert (H_neq : E <> C). {
+            refine (symmetry_neq
+                (distinct_parent _ C E fs ms H_directed_ct _ _)).
+            (* Object \notin CT *)
+            assumption.
+            (* binds *)
+            apply binds_first.
+        }
+        intro H_ok_E.
+        (* ok *)
+        eapply ok_subtable.
+        exact (symmetry_neq H_neq).
+        exact H_ok_E.
+        + (* binds *)
+        apply binds_first.
+        }
+    }
     + (* neq  Going to use IHCT' as we've got a smaller CT now. *)
     apply IHCT'.
     * exact (weaken_directed_ct _ _ _ H_directed_ct).
-    * intros C0 D0 H_ok' H_D0 H_extends.
+    * (* Obj \notin CT *) {
+        unfold not.
+        intro H_Obj_In.
+        unfold In in H_noobj.
+        simpl in H_noobj.
+        auto.
+    }
+
+    * (* Use H_Ind *)
+    intros C0 D0 H_ok' H_extends H_D0.
     eapply H_Ind with (D0 := D0).
     destruct H_ok'.
     apply ok_obj.
@@ -341,7 +520,6 @@ Proof.
     apply in_cons.
     auto.
 
-    assumption.
     unfold extends_.
     unfold extends_ in H_extends.
     induction H_extends as [fs' [ms' H_binds]].
@@ -359,10 +537,11 @@ Proof.
     (* neq *)
     refine (binds_other _ H_binds _).
     auto.
+
+    assumption.
     * (* Last argument of IHCT' *)
     exact (ok_subtable _ _ _ _ n H_ok).
 Qed.
-
 
 (* TODO Restructure below this point still *)
 
@@ -379,6 +558,14 @@ Definition CT' := CT_A ++ CT_L'.
 (* TODO is it a good idea to have this as global hypotheis? *)
 Hypothesis CT_is_directed : directed_ct CT.
 Hypothesis CT_L_is_directed : directed_ct CT_L.
+
+(* Definitions which just assume CT. *)
+Definition ok_type := ok_type_ CT.
+Hint Unfold ok_type.
+Definition extends := extends_ CT.
+Hint Unfold extends.
+Definition sub     := @sub_ CT.
+Hint Unfold sub.
 
 (** * Auxiliaries *)
 
@@ -427,70 +614,6 @@ Notation env := (list (var * typ)).
 *)
 
 
-
-Example no_self_inheritance : forall CT : ctable,
-    directed_ct CT ->
-    Object \notin dom CT ->
-    forall C : cname,
-    ~ exists fs ms, binds C (C,fs,ms) CT.
-Proof.
-    intros CT H ct_noobj C.
-    unfold not.
-    intros.
-    destruct H0 as [fs].
-    destruct H0 as [ms].
-    induction H.
-    - (* ct_directed_nil.*)
-    unfold binds in H0.
-    absurd (None = Some (C, fs, ms)); discriminate.
-
-
-    - (* ct_directed_cons *)
-    destruct (C == C0) as [H3 | Hneq].
-
-    + (* C == C0 *)
-    symmetry in H3; subst.
-    unfold binds in H0.
-    simpl in H0.
-    rewrite eq_atom_true in H0.
-    inversion H0.
-    destruct H2.
-    * (* D \in key ct. *)
-    rewrite H4 in H2.
-    contradiction.
-    * (* D = Object. *)
-    subst.
-    rewrite dom_distribute_cons in ct_noobj.
-    apply not_in_split in ct_noobj.
-    subst.
-    absurd (Object = Object); auto.
-    apply ct_noobj.
-
-    + (* C <> C0 *)
-    inversion H0.
-    rewrite dom_distribute_cons in ct_noobj.
-    apply not_in_split in ct_noobj.
-    apply IHdirected_ct.  apply ct_noobj.
-    assert ((if C == C0 then
-             Some (D, fs0, ms0)
-             else Metatheory.get C ct) = Metatheory.get C ct).
-    exact (eq_atom_false _ _ Hneq).
-    rewrite H3 in H4.
-    apply H4.
-Qed.
-
-Lemma directed_is_ok : forall ct,
-    directed_ct ct -> ok ct.
-Proof.
-    intros.
-    induction H.
-    auto.
-    pose (dom_binds_neg ct C H0) as H3.
-    apply ok_cons.
-    assumption.
-    unfold no_binds.
-    assumption.
-Qed.
 
 (* Need to generate a lineage list, of all the parents as well as the current class.. *)
 

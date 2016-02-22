@@ -32,6 +32,8 @@ Proof.
     destruct n. reflexivity.
 Qed.
 
+Hint Resolve eq_atom_true.
+
 Fact eq_atom_false: forall (A : Type) a b (c d : A),
     a <> b -> (if a == b then c else d) = d.
 Proof.
@@ -39,7 +41,21 @@ Proof.
   destruct (a == b); [ subst; destruct H | ]; reflexivity.
 Qed.
 
+Hint Resolve eq_atom_false.
+
 Definition In_atom_list_dec := In_dec eq_atom_dec.
+
+Lemma symmetry_neq : forall A (x y : A),
+    (x <> y) -> (y <> x).
+Proof.
+    intros.
+    unfold not in * |- *.
+    intros.
+    symmetry in H0.
+    apply H.
+    auto.
+Qed.
+
 
 Lemma cons_app_equiv {A: Type} : forall (x:A) xs,
     x :: xs = (x :: nil) ++ xs.
