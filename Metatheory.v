@@ -32,7 +32,7 @@ Proof.
     destruct n. reflexivity.
 Qed.
 
-Hint Resolve eq_atom_true.
+Hint Rewrite eq_atom_true.
 
 Fact eq_atom_false: forall (A : Type) a b (c d : A),
     a <> b -> (if a == b then c else d) = d.
@@ -41,7 +41,7 @@ Proof.
   destruct (a == b); [ subst; destruct H | ]; reflexivity.
 Qed.
 
-Hint Resolve eq_atom_false.
+Hint Rewrite eq_atom_false.
 
 Definition In_atom_list_dec := In_dec eq_atom_dec.
 
@@ -140,6 +140,11 @@ Section Environment.
     Qed.
 
     Fact binds_nil: forall x (a : A), ~binds x a nil.
+    Proof.
+      unfold binds. simpl. intros. discriminate.
+    Qed.
+
+    Fact binds_nil2: forall x (a : A), binds x a nil -> False.
     Proof.
       unfold binds. simpl. intros. discriminate.
     Qed.
@@ -548,6 +553,113 @@ Unset Implicit Arguments.
 Hint Constructors ok.
 Hint Constructors forall_env.
 Implicit Arguments fa_nil [A].
+
+
+Hint Resolve
+    binds_first
+    binds_other
+    binds_nil
+    binds_nil2
+    binds_fun
+    binds_elim_eq
+    binds_elim_neq
+    binds_head
+    binds_nobinds
+    nobinds_nil
+    nobinds_cons
+    nobinds_app
+    nobinds_weaken 
+    nobinds_split_app
+    dom_binds
+    binds_In
+    dom_binds_neg
+    dom_distribute_cons
+    binds_concat_ok
+    binds_concat_ok_2
+    binds_weaken
+    ok_split_app
+    ok_disjoint_app
+    ok_binds_cons.
+
+    (* Summaries
+    Fact binds_first: forall x (a : A) E, binds x a ((x,a)::E).
+    Fact binds_other: forall x y (a b : A) E,
+        binds y b E -> x <> y -> binds y b ((x,a)::E).
+    Fact binds_nil: forall x (a : A), ~binds x a nil.
+
+    Fact binds_fun: forall E x (a b : A),
+        binds x a E -> binds x b E -> a = b.
+    Fact binds_elim_eq: forall x (a b : A) E,
+        binds x a ((x,b)::E) -> a = b.
+    Fact binds_elim_neq: forall x y (a b : A) E,
+        x <> y -> binds x a ((y,b)::E) -> binds x a E.
+    Fact binds_head : forall x a E F,
+        binds x a F -> binds x a (F ++ E).
+    Fact binds_nobinds : forall x a E,
+        binds x a E -> no_binds x E -> False.
+
+    Fact nobinds_nil: forall x, no_binds x nil.
+
+    Fact nobinds_cons: forall x y b E,
+        no_binds x E ->
+        x <> y ->
+        no_binds x ((y,b)::E).
+
+    Fact nobinds_app: forall x E1 E2,
+       no_binds x E1 ->
+       no_binds x E2 ->
+       no_binds x (E1++E2).
+
+    Fact nobinds_weaken : forall x y a E,
+        no_binds x ((y, a) :: E) ->
+        no_binds x E.
+
+    Fact nobinds_split_app : forall x E F,
+        no_binds x (E ++ F) ->
+        no_binds x E /\ no_binds x F.
+    Fact dom_binds: forall (E : list (atom * A)) (x : atom),
+        x \in dom E -> exists v:A, binds x v E.
+    Fact binds_In : forall a x E,
+        binds x a E -> x \in dom E.
+    Fact dom_binds_neg: forall (E : list (atom * A)) (x : atom),
+        x \notin dom E -> get x E = None.
+
+    Fact dom_distribute_cons : forall (E : list (atom * A)) (x : atom) (a : A),
+        dom ((x, a) :: E) = x :: dom E.
+
+    Fact binds_concat_ok : forall x a E F,
+      binds x a E -> ok (F ++ E) -> binds x a (F ++ E).
+
+    Fact binds_concat_ok_2 : forall x a E F,
+      binds x a F -> ok (F ++ E) -> binds x a (F ++ E).
+
+    Fact binds_weaken : forall x a E F G,
+      binds x a (G ++ E) ->
+      ok (G ++ F ++ E) ->
+      binds x a (G ++ F ++ E).
+
+
+    Fact ok_split_app : forall E F,
+        ok (F ++ E) ->
+        ok F /\ ok E.
+    Fact ok_disjoint_app : forall a b x y E F,
+        binds x a E ->
+        binds y b F ->
+        ok (E ++ F) ->
+        x <> y.
+
+    Fact ok_binds_cons : forall x a F,
+        ok ((x, a) :: F) ->
+        binds x a ((x, a) :: F) ->
+        no_binds x F.
+    Fact fa_single: forall x a, P x a -> forall_env ((x,a)::nil).
+    Fact fa_app: forall E F,
+        forall_env E -> forall_env F -> forall_env (E++F).
+    Fact fa_weaken: forall E F G,
+        forall_env (E++F++G) -> forall_env (E++G).
+    Fact fa_binds_elim: forall x a E,
+        binds x a E -> forall_env E -> P x a.
+    *)
 
 Set Implicit Arguments.
 
