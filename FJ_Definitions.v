@@ -394,9 +394,9 @@ Theorem ClassTable_ind {CT :ctable } : forall P : cname -> Prop,
     directed_ct CT ->
     Object \notin dom CT ->
     P Object ->
-    (forall (C D : cname),
+    (forall (C D : cname) fs ms,
       ok_type_ CT D ->
-      @extends_ CT C D ->
+      binds C (D, fs, ms) CT ->
       P D -> P C) ->
     (forall C: cname, ok_type_ CT C -> P C).
 Proof.
@@ -418,7 +418,7 @@ Proof.
     (* Plan: use H_Ind to solve, 
         as we can show P E by IHCT *)
 
-    refine (H_Ind C E _ _ _).
+    refine (H_Ind C E _ _ _ _ _).
     * (* E is OK because of directed_ct. *) {
     inversion H_directed_ct.
     subst.
@@ -434,9 +434,6 @@ Proof.
     apply ok_obj.
     }
     * (* weaken extends *) {
-    unfold extends_.
-    exists fs.
-    exists ms.
     unfold binds.
     simpl.
     rewrite eq_atom_true.
@@ -453,18 +450,15 @@ Proof.
         auto.
         }
         - (* smaller H_Ind *) {
-        intros C0 D0 H_ok' H_extends H_D0.
-        apply H_Ind with (D := D0).
-        + destruct H_ok'.
+        intros C0 D0 fs' ms' H_ok' H_binds H_D0.
+        apply H_Ind with (D := D0) (fs0 := fs') (ms0 := ms').
+        + (* ok_type D0 *)
+        destruct H_ok'.
         * apply ok_obj.
         * apply ok_in_ct.
         apply in_cons.
         auto.
-        + unfold extends_.
-        induction H_extends as [fs' [ms' H_binds]].
-        exists fs'.
-        exists ms'.
-
+        + (* binds C0 (D0, fs', ms' _ *)
         destruct (C0 == C).
         (* eq *)
         subst.
@@ -510,19 +504,14 @@ Proof.
     * (* Obj \notin CT *) crush.
 
     * (* Use H_Ind *)
-    intros C0 D0 H_ok' H_extends H_D0.
-    eapply H_Ind with (D0 := D0).
+    intros C0 D0 fs' ms' H_ok' H_binds H_D0.
+    eapply H_Ind with (D0 := D0) (fs0 := fs') (ms0 := ms').
     destruct H_ok'.
     apply ok_obj.
     apply ok_in_ct.
     apply in_cons.
     auto.
 
-    unfold extends_.
-    unfold extends_ in H_extends.
-    induction H_extends as [fs' [ms' H_binds]].
-    exists fs'.
-    exists ms'.
     destruct (C0 == D).
     (* eq *)
     subst.
@@ -1253,6 +1242,8 @@ Lemma mresolve_cases : forall CT m C C' D,
 Proof.
     clear.
     intros.
+    unfold extends_ in H.
+    destruct H as [fs [ms H_binds]].
     
 Abort.
 
