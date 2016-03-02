@@ -122,7 +122,7 @@ Proof.
     destruct H0 as [|C]; crush.
 Qed.
 
-Hint Immediate ok_subtable.
+Hint Resolve ok_subtable.
 
 Lemma ok_supertable : forall CT C D p,
     @ok_type_ CT C ->
@@ -804,25 +804,34 @@ Lemma self_lineage1 : forall CT C,
     ok_type_ CT C ->
     directed_ct CT ->
     Object \notin dom CT ->
-    exists xs,
-    C :: xs = lineage CT C.
+    hd_error (lineage CT C) = Some (C).
 Proof.
     clear.
     intros CT C H_ok H_dir H_noobj.
-    generalize C H_ok H_dir H_noobj.
-    clear C H_ok.
-    refine (@ClassTable_ind CT
-        (fun C => directed_ct CT ->
-                Object \notin dom CT ->
-                exists xs, C :: xs = lineage CT C)
-        H_dir H_noobj _ _ ).
-    - intros. exists nil. crush.
+    induction CT.
+    - crush.
     -
-    intros C D fs ms H_ok H_binds.
-    intros IH.
-    intros H_dir2 H_noobj2.
+    destruct a as [A [[B fs] ms]].
+    destruct (A == C).
+    + (* Found it *)
+    subst.
+    unfold lineage.
+    fold lineage.
+    rewrite eq_atom_true.
     crush.
-
+    + (* IH time *)
+    unfold lineage.
+    fold lineage.
+    rewrite eq_atom_false.
+    { apply IHCT.
+    - eapply ok_subtable.
+    exact n.
+    exact H_ok.
+    - eapply weaken_directed_ct.
+    exact H_dir.
+    - crush.
+    }
+    crush.
 Qed.
 
 
@@ -858,6 +867,14 @@ Qed.
 
 Hint Resolve self_lineage.
 
+Lemma list_map_head : forall A xs ys,
+    xs = ys ->
+    @hd_error A xs = hd_error ys.
+Proof.
+    intros.
+    congruence.
+Qed.
+
 Lemma lineage_injective : forall CT C D,
     Object \notin dom CT ->
     directed_ct CT ->
@@ -886,22 +903,92 @@ Proof.
     fold lineage in H_eq.
     rewrite eq_atom_true in H_eq.
     rewrite eq_atom_false in H_eq.
-
-
-Abort.
+    {
+    apply list_map_head in H_eq.
+    rewrite self_lineage1 in H_eq.
+    - simpl in H_eq.
+    unfold value in H_eq.
+    inversion H_eq.
+    reflexivity.
+    -
+    eapply ok_subtable with (C:= D) (D := C).
+    auto.
+    exact H_ok_D.
+    -
+    eapply weaken_directed_ct.
+    exact H_dir.
+    - (* no_obj *)
+    crush.
+    }
+    crush.
+    + {
+    destruct (A == D).
+    -
+    subst.
+    unfold lineage in H_eq.
+    fold lineage in H_eq.
+    rewrite eq_atom_true in H_eq.
+    rewrite eq_atom_false in H_eq.
+    {
+    apply list_map_head in H_eq.
+    rewrite self_lineage1 in H_eq.
+    - simpl in H_eq.
+    unfold value in H_eq.
+    inversion H_eq.
+    symmetry in H0.
+    contradiction.
+    -
+    eapply ok_subtable with (C:= C) (D := D).
+    auto.
+    exact H_ok_C.
+    -
+    eapply weaken_directed_ct.
+    exact H_dir.
+    - (* no_obj *)
+    crush.
+    }
+    crush.
+    -
+    apply IHCT'.
+    + (* no_obj *)
+    crush.
+    + (* directed *)
+    eapply weaken_directed_ct.
+    exact H_dir.
+    + (* OK C *)
+    eapply ok_subtable.
+    exact n.
+    exact H_ok_C.
+    + (* OK D *)
+    eapply ok_subtable.
+    exact n0.
+    exact H_ok_D.
+    + (* Both <> A *)
+    {
+    unfold lineage in H_eq.
+    fold lineage in H_eq.
+    rewrite eq_atom_false in H_eq.
+    rewrite eq_atom_false in H_eq.
+    assumption.
+    auto.
+    auto.
+    }
+    }
+Qed.
 
 Lemma extends_lineage1 : forall CT C D,
     directed_ct CT ->
+    Object \notin dom CT ->
     ok_type_ CT C ->
     ok_type_ CT D ->
     @extends_ CT C D ->
     C :: lineage CT D = lineage CT C.
 Proof.
-    intros.
+    intros CT0 C D H_dir H_noobj H_ok_C H_ok_D H_extends.
     induction CT0.
     +
     unfold lineage.
-    destruct H2 as [fs [ms H_binds]].
+    destruct H_extends as [fs [ms H_binds]].
     exfalso.
     eapply binds_nil2.
     apply H_binds.
@@ -914,14 +1001,22 @@ Proof.
     destruct (A == D).
     + (* A = D is nonsense, *)
     subst.
-    rewrite eq_atom_true.
-    unfold lineage at 2.
-    fold lineage.
-    assert (C <> D).
-        admit. (* via  extends_ unique parent *)
-    rewrite eq_atom_false.
-
-    crush.
+    exfalso.
+    inversion H_dir.
+    subst.
+    destruct H_extends as [fs' [ms' H_binds]].
+    assert (H_neq : C <> D) by
+        exact (directed_binds_unique ((D, (B, fs, ms)) :: CT0) C D
+        fs' ms' H_noobj H_dir H_binds ).
+    assert (binds C (D, fs', ms') CT0) by
+        exact (binds_elim_neq H_neq H_binds).
+    assert (H_ok_D2 : ok_type_ CT0 D) by
+        exact (directed_binds C D fs' ms' CT0 H2 H).
+    (* We have D ok in CT0 but also not in CT0 *)
+    inversion H_ok_D2.
+    * symmetry in H0. subst.
+    simpl in H_noobj.  crush.
+    * subst.  crush.
     + (* A <> D, peel it off *)
     rewrite eq_atom_false.
 
@@ -933,30 +1028,31 @@ Proof.
     destruct (A == C).
     - subst.
     rewrite eq_atom_true.
-    destruct H2 as [fs' [ms' H_binds]].
+    destruct H_extends as [fs' [ms' H_binds]].
 
     inversion H_binds.
-    rewrite eq_atom_true in H3.
-    inversion H3.
+    rewrite eq_atom_true in H0.
+    inversion H0.
     subst.
     crush.
     -
     rewrite eq_atom_false.
+    {
     apply IHCT0.
-    crush.
-    exact (weaken_directed_ct _ _ _ H).
-    exact (ok_subtable _ _ _ _ n0 H0).
-    exact (ok_subtable _ _ _ _ n H1).
-    unfold extends_.
-    destruct H2 as [fs' [ms' H_binds]].
+    - exact (weaken_directed_ct _ _ _ H_dir).
+    - crush.
+    - exact (ok_subtable _ _ _ _ n0 H_ok_C).
+    - exact (ok_subtable _ _ _ _ n H_ok_D).
+    -
+    destruct H_extends as [fs' [ms' H_binds]].
     apply binds_elim_neq in H_binds.
     exists fs'.
     exists ms'.
     assumption.
     crush.
+    }
     crush.
-    -
-    crush.
+    - crush.
     }
 Qed.
 
