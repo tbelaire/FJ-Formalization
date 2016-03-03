@@ -1657,6 +1657,47 @@ Proof.
     
 Abort.
 
+Lemma ClassTable_obj_inv : forall CT (P : cname -> Type)
+    (H_dir : directed_ct CT)
+    (H_noobj : Object \notin dom CT)
+    (P_Obj : P Object)
+    P_Ind,
+    ClassTable_rect P H_dir H_noobj P_Obj P_Ind Object = P_Obj.
+Proof.
+Abort.
+
+Definition length_of_class_chain : forall CT C
+    (H_dir : directed_ct CT)
+    (H_noobj : Object \notin dom CT)
+    (H_ok :  ok_type_ CT C), nat.
+Proof.
+    clear.
+    intros.
+    generalize C H_ok.
+    clear C H_ok.
+    refine(
+    @ClassTable_rect CT0 (fun (C: cname) => nat)
+    H_dir H_noobj
+    (* P Obj *) ((fun _: cname => 0) Object)
+    (* P ind *) (fun (C D: cname) fs ms H_ok H_binds P_D => 1 + P_D)
+    ).
+Defined.
+
+Lemma zero_ancestors_object : forall CT
+    (H_dir : directed_ct CT)
+    (H_noobj : Object \notin dom CT),
+    length_of_class_chain CT Object
+    H_dir H_noobj (ok_obj CT) = 0.
+Proof.
+    intros.
+    unfold length_of_class_chain.
+    unfold ClassTable_rect.
+    simpl.
+Abort.
+
+
+
+
 Lemma mresolve2_Object_None : forall CT m
     (H_dir : directed_ct CT)
     (H_noobj : Object \notin dom CT),
@@ -1664,11 +1705,17 @@ Lemma mresolve2_Object_None : forall CT m
 Proof.
     clear.
     intros.
+    inversion.
+    induction CT0 using (ClassTable_rect _ H_dir H_noobj).
 
     unfold mresolve2.
-    unfold ClassTable_rect.
-    (* What have I done .... *)
     simpl.
+    admit.
+    unfold mresolve2.
+    simpl.
+    
+
+    crush.
 Abort.
 
 Lemma mresolve_in_CT_A (C : cname) : forall (m:mname) C'
