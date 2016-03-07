@@ -583,6 +583,11 @@ Proof.
     exact (ok_subtable _ _ _ _ n H_ok).
 Defined.
 
+
+Require Import Coq.Logic.JMeq.
+Require Import Program.
+
+
 Lemma ClassTable_obj_inv (CT : ctable)
     (H_dir : directed_ct CT)
     (H_noobj : Object \notin dom CT)
@@ -597,14 +602,26 @@ Lemma ClassTable_obj_inv (CT : ctable)
     P_Obj.
 Proof.
     induction CT.
-    unfold ClassTable_rect.
+    - unfold ClassTable_rect.
     simpl.
     unfold eq_rect_r.
     unfold eq_rect.
     unfold eq_sym.
     unfold ok_nil_object.
-    admit.
-Abort.
+    dependent destruction H_ok; crush.
+    - (* Inductive *)
+    destruct a as [A [[B fs] ms]].
+    unfold ClassTable_rect.
+    simpl.
+    destruct (A == Object) as [H_eq | H_neq].
+    +
+    exfalso.
+    rewrite H_eq in H_noobj.
+    crush.
+    +
+    apply IHCT.
+Qed.
+
 
 
 (* TODO Restructure below this point still *)
@@ -1681,15 +1698,6 @@ Proof.
     
 Abort.
 
-Lemma ClassTable_obj_inv : forall CT (P : cname -> Type)
-    (H_dir : directed_ct CT)
-    (H_noobj : Object \notin dom CT)
-    (P_Obj : P Object)
-    P_Ind,
-    ClassTable_rect P H_dir H_noobj P_Obj P_Ind Object = P_Obj.
-Proof.
-Abort.
-
 Definition length_of_class_chain : forall CT C
     (H_dir : directed_ct CT)
     (H_noobj : Object \notin dom CT)
@@ -1715,11 +1723,16 @@ Lemma zero_ancestors_object : forall CT
 Proof.
     intros.
     unfold length_of_class_chain.
-    unfold ClassTable_rect.
-    simpl.
-Abort.
-
-
+    apply (ClassTable_obj_inv
+    CT0
+    H_dir
+    H_noobj
+    (fun _ : cname  => nat)
+    0
+    (fun (C D : cname) (fs : flds) (ms : mths) (_ : ok_type_ CT0 D)
+     (_ : binds C (D, fs, ms) CT0) (P_D : nat) => 1 + P_D)
+    (ok_obj CT0)).
+Qed.
 
 
 Lemma mresolve2_Object_None : forall CT m
@@ -1729,18 +1742,21 @@ Lemma mresolve2_Object_None : forall CT m
 Proof.
     clear.
     intros.
-    inversion.
-    induction CT0 using (ClassTable_rect _ H_dir H_noobj).
-
     unfold mresolve2.
-    simpl.
-    admit.
-    unfold mresolve2.
-    simpl.
-    
-
-    crush.
-Abort.
+    apply (ClassTable_obj_inv
+    CT0
+    H_dir
+    H_noobj
+    (fun _ : cname  => option cname)
+    None
+    (fun (C D : cname) (fs : flds) (ms : mths) (_ : ok_type_ CT0 D)
+    (_ : binds C (D, fs, ms) CT0) (P_D : option cname) =>
+    match get m ms with
+    | Some _ => Some C
+    | None => P_D
+    end)
+    (ok_obj CT0)).
+Qed.
 
 Lemma mresolve_in_CT_A (C : cname) : forall (m:mname) C'
     (H_ok : ok_type_ CT C),
