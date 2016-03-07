@@ -442,9 +442,9 @@ Proof.
     destruct H.
     reflexivity.
     crush.
-Qed.
+Defined.
 
-Theorem ClassTable_rect {CT :ctable } : forall P : cname -> Type,
+Theorem ClassTable_rect (CT :ctable) : forall P : cname -> Type,
     directed_ct CT ->
     Object \notin dom CT ->
     P Object ->
@@ -460,9 +460,9 @@ Proof.
     induction CT as [| [D [[E fs] ms]] CT'].
     - (* nil *)
     intros C H_ok.
-    assert (C = Object). apply ok_nil_object. assumption.
-    subst.
-    assumption.
+    assert (C = Object) by apply (ok_nil_object C H_ok).
+    rewrite H.
+    exact H_Obj.
     - (* cons *)
     intros C H_ok.
     destruct (D == C).
@@ -582,6 +582,30 @@ Proof.
     * (* Last argument of IHCT' *)
     exact (ok_subtable _ _ _ _ n H_ok).
 Defined.
+
+Lemma ClassTable_obj_inv (CT : ctable)
+    (H_dir : directed_ct CT)
+    (H_noobj : Object \notin dom CT)
+    (P : cname -> Type)
+    (P_Obj : P Object)
+    (P_Ind : forall (C D : cname) fs ms,
+      ok_type_ CT D ->
+      binds C (D, fs, ms) CT ->
+      P D -> P C)
+    (H_ok : ok_type_ CT Object) :
+    (@ClassTable_rect CT P H_dir H_noobj P_Obj P_Ind Object H_ok) =
+    P_Obj.
+Proof.
+    induction CT.
+    unfold ClassTable_rect.
+    simpl.
+    unfold eq_rect_r.
+    unfold eq_rect.
+    unfold eq_sym.
+    unfold ok_nil_object.
+    admit.
+Abort.
+
 
 (* TODO Restructure below this point still *)
 
