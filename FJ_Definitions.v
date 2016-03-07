@@ -15,6 +15,9 @@
 
 Require Import Metatheory.
 Require Import CpdtTactics.
+Require Import Coq.Init.Specif.
+
+
 
 (** * Syntax *)
 
@@ -444,7 +447,9 @@ Proof.
     crush.
 Qed.
 
-Theorem ClassTable_rect {CT :ctable } : forall P : cname -> Type,
+Definition Class_ (CT:ctable) := forall C, {C : cname | ok_type_ CT C}.
+
+Theorem ClassTable_rect {CT :ctable } : forall P : Class_ CT -> Type,
     directed_ct CT ->
     Object \notin dom CT ->
     P Object ->
@@ -452,14 +457,13 @@ Theorem ClassTable_rect {CT :ctable } : forall P : cname -> Type,
       ok_type_ CT D ->
       binds C (D, fs, ms) CT ->
       P D -> P C) ->
-    (forall C: cname, ok_type_ CT C -> P C).
+    (forall C: cname, P C).
 Proof.
-    intros P H_directed_ct H_noobj H_Obj H_Ind C H_ok.
-    generalize H_ok. clear H_ok.
+    intros P H_directed_ct H_noobj H_Obj H_Ind C.
     generalize C. clear C.
     induction CT as [| [D [[E fs] ms]] CT'].
     - (* nil *)
-    intros C H_ok.
+    intros C.
     assert (C = Object). apply ok_nil_object. assumption.
     subst.
     assumption.
