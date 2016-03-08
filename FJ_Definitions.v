@@ -145,7 +145,7 @@ Proof.
     - reflexivity.
     - exfalso.
     crush.
-Qed.
+Defined.
 
 (** [directed_ct CT] holds when the ctable only has references to already
   * existing classes for inheritance *)
@@ -262,13 +262,28 @@ Ltac unfold_extends :=
     match goal with
     | [ H: (extends_ ?CT ?C ?D) |- _] => destruct H as [?fs [?ms ?H_binds]]
     end.
-Hint Extern 1 (extends_ _ _ _) => unfold_extends.
-Ltac solve_binds_nil := 
+Hint Extern 1 => unfold_extends.
+Ltac solve_binds_nil :=
     match goal with
     | [H: (binds ?C ?x ?nil) |- _] => exfalso; apply binds_nil2 in H; assumption
     end.
-Hint Extern 1 (get _ nil = Some _) => solve_binds_nil.
-Hint Extern 1 (binds _ _ _) => solve_binds_nil.
+Hint Extern 1 False => solve_binds_nil.
+
+(* This gives reasonable names to things. *)
+Ltac unfold_directed :=
+    match goal with
+    | [ H_directed: (directed_ct (_ :: _)) |- _] =>
+    inversion H_directed
+    as [ | ?C ?D ?fs ?ms ?CT ?H_dir ?H_noobj ?H_ok ] ; subst
+    end.
+(* This will cause it to run unconditionally on all autos... *)
+(* Hint Extern 3 => unfold_directed. *)
+
+Ltac unfold_ok_type :=
+    match goal with
+    | [ H_ok_type: (ok_type_ (_ :: _)) |- _] =>
+    inversion H_ok_type
+    end.
 
 
 
@@ -427,21 +442,138 @@ Lemma directed_sub_ok : forall CT C D,
 Proof.
     intros CT C D H_dir H_ok H_sub.
     induction H_sub.
-    - assumption.
     - crush.
-    - destruct H as [fs [ms H_binds]].
-    eapply directed_ok.
-    assumption.
-    exact H_binds.
+    - crush.
+    - unfold_extends.
+    eauto.
 Qed.
 
-Lemma ok_nil_object : forall C,
-    ok_type_ nil C -> C = Object.
+Lemma ClassTable_rect_base_case
+(    P : cname -> Type)
+(H_directed_ct : directed_ct nil)
+(H_noobj : Object \notin @dom cname nil)
+(H_Obj : P Object)
+(H_Ind : forall (C D : cname) (fs : flds) (ms : mths),
+        ok_type_ nil D -> binds C (D, fs, ms) nil -> P D -> P C)
+:
+forall C : cname, ok_type_ nil C -> P C.
 Proof.
-    intros.
-    destruct H.
-    reflexivity.
+    intros C H_ok.
+    assert (C = Object) by apply (ok_type_nil C H_ok).
+    rewrite H.
+    exact H_Obj.
+Defined.
+
+Lemma ok_head_parent
+(E : cname)
+(C : cname)
+(fs : flds)
+(ms : mths)
+(CT' : list (cname * (cname * flds * mths)))
+(H_dir : directed_ct ((C, (E, fs, ms)) :: CT'))
+(H_noobj : Object \notin dom ((C, (E, fs, ms)) :: CT'))
+(H_ok : ok_type_ ((C, (E, fs, ms)) :: CT') C)
+:
+ok_type_ ((C, (E, fs, ms)) :: CT') E.
+Proof.
+    unfold_directed.
+    destruct H_ok0.
+    - (* is object *)
+    subst.
+    apply ok_obj.
+    - (* in keys *)
+    apply ok_in_ct.
+    unfold dom.
+    unfold keys.
+    simpl.
     crush.
+Defined.
+
+Lemma ClassTable_rect_reduce_H_Ind
+(P : cname -> Type)
+(C : cname)
+(E : cname)
+(fs : flds)
+(ms : mths)
+(CT' : list (cname * (cname * flds * mths)))
+(H_directed_ct : directed_ct ((C, (E, fs, ms)) :: CT'))
+(H_Ind : forall (C0 D0 : cname) (fs0 : flds) (ms0 : mths),
+        ok_type_ ((C, (E, fs, ms)) :: CT') D0 ->
+        binds C0 (D0, fs0, ms0) ((C, (E, fs, ms)) :: CT') -> P D0 -> P C0)
+:
+forall (C0 D0 : cname) (fs0 : flds) (ms0 : mths),
+ok_type_ CT' D0 -> binds C0 (D0, fs0, ms0) CT' -> P D0 -> P C0.
+Proof.
+        intros C0 D0 fs' ms' H_ok' H_binds H_D0.
+        assert (H_ok_D0: ok_type_ ((C, (E, fs, ms)) :: CT') D0) by
+            apply (ok_supertable _ _ _ _ H_ok').
+        refine (H_Ind C0 D0 fs' ms' H_ok_D0 _ H_D0).
+        (* binds C0 (D0, fs', ms') _ *)
+        destruct (C0 == C).
+        + (* eq *)
+        subst.
+        (* Contradiction , we've bound D twice, with D0 and E *)
+        exfalso.
+        inversion H_directed_ct.
+        subst.
+        apply binds_In in H_binds.
+        contradiction.
+        + (* neq *)
+        refine (binds_other _ _ _); auto.
+Defined.
+
+Lemma ClassTable_rect_inductive_step
+(P : cname -> Type)
+(D : cname)
+(E : cname)
+(fs : flds)
+(ms : mths)
+(CT' : list (cname * (cname * flds * mths)))
+(H_directed_ct : directed_ct ((D, (E, fs, ms)) :: CT'))
+(H_noobj : Object \notin dom ((D, (E, fs, ms)) :: CT'))
+(H_Obj : P Object)
+(H_Ind : forall (C D0 : cname) (fs0 : flds) (ms0 : mths),
+        ok_type_ ((D, (E, fs, ms)) :: CT') D0 ->
+        binds C (D0, fs0, ms0) ((D, (E, fs, ms)) :: CT') -> P D0 -> P C)
+(IHCT' : directed_ct CT' ->
+        Object \notin dom CT' ->
+        (forall (C D0 : cname) (fs0 : flds) (ms0 : mths),
+         ok_type_ CT' D0 -> binds C (D0, fs0, ms0) CT' -> P D0 -> P C) ->
+        forall C : cname, ok_type_ CT' C -> P C)
+    : forall C : cname, ok_type_ ((D, (E, fs, ms)) :: CT') C -> P C.
+Proof.
+    intros C H_ok.
+    destruct (D == C).
+    + (* eq Going to use H_Ind *)
+    subst.
+    (* Plan: use H_Ind to solve,
+        as we can show P E by IHCT *)
+
+    assert (H_ok_E : ok_type_ ((C, (E, fs, ms)) :: CT') E) by
+    exact (ok_head_parent _ _ _ _ _ H_directed_ct H_noobj H_ok).
+    refine (H_Ind C E fs ms H_ok_E (binds_first C _ _ ) _).
+    * (* Show (P E) by IHCT' *) {
+        eapply IHCT'.
+        - exact (weaken_directed_ct _ _ _ H_directed_ct).
+        - (* object \notin dom CT *)
+        abstract crush.
+        - (* smaller H_Ind *)
+        apply (ClassTable_rect_reduce_H_Ind P C E fs ms _ H_directed_ct H_Ind).
+        - (* ok_type E *)
+        abstract exact (ok_subtable _ E C _
+            (distinct_parent _ C E fs ms H_directed_ct H_noobj
+                (binds_first _ _ _))
+            H_ok_E).
+    }
+
+    + (* neq  Going to use IHCT' as we've got a smaller CT now. *)
+    apply IHCT'.
+    * exact (weaken_directed_ct _ _ _ H_directed_ct).
+    * (* Obj \notin CT *) abstract crush.
+    * (* Use H_Ind *)
+    apply (ClassTable_rect_reduce_H_Ind P D E fs ms _ H_directed_ct H_Ind).
+    * (* Last argument of IHCT' *)
+    exact (ok_subtable _ _ _ _ n H_ok).
 Defined.
 
 Theorem ClassTable_rect (CT :ctable) : forall P : cname -> Type,
@@ -459,130 +591,10 @@ Proof.
     generalize C. clear C.
     induction CT as [| [D [[E fs] ms]] CT'].
     - (* nil *)
-    intros C H_ok.
-    assert (C = Object) by apply (ok_nil_object C H_ok).
-    rewrite H.
-    exact H_Obj.
+    apply ClassTable_rect_base_case; assumption.
     - (* cons *)
-    intros C H_ok.
-    destruct (D == C).
-    + (* eq Going to use H_Ind *)
-    subst.
-    (* Plan: use H_Ind to solve, 
-        as we can show P E by IHCT *)
-
-    refine (H_Ind C E _ _ _ _ _).
-    * (* E is OK because of directed_ct. *) {
-    inversion H_directed_ct.
-    subst.
-    destruct H6.
-    - (* is object *)
-    subst.
-    apply ok_obj.
-    - (* in keys *)
-    apply ok_in_ct.
-    unfold dom.
-    unfold keys.
-    simpl.
-    crush.
-    }
-    * (* weaken extends *) {
-    unfold binds.
-    simpl.
-    rewrite eq_atom_true.
-    reflexivity.
-    }
-    * (* Show (P E) by IHCT' *) {
-        eapply IHCT'.
-        - exact (weaken_directed_ct _ _ _ H_directed_ct).
-        - (* object \notin dom CT *) {
-        unfold not.
-        intro H_Obj_In.
-        unfold In in H_noobj.
-        simpl in H_noobj.
-        auto.
-        }
-        - (* smaller H_Ind *) {
-        intros C0 D0 fs' ms' H_ok' H_binds H_D0.
-        apply H_Ind with (D := D0) (fs0 := fs') (ms0 := ms').
-        + (* ok_type D0 *)
-        destruct H_ok'.
-        * apply ok_obj.
-        * apply ok_in_ct.
-        apply in_cons.
-        auto.
-        + (* binds C0 (D0, fs', ms' _ *)
-        destruct (C0 == C).
-        (* eq *)
-        subst.
-        (* Contradiction , we've bound D twice, with D0 and E *)
-        exfalso.
-        inversion H_directed_ct.
-        subst.
-        apply binds_In in H_binds.
-        contradiction.
-        (* neq *)
-        refine (binds_other _ _ _).
-        auto.
-        unfold not.
-        intro.
-        symmetry in H.
-        contradiction H.
-        +
-        assumption.
-        }
-        - (* ok_type E *) {
-        refine (_ (directed_ok _ C E fs ms H_directed_ct _)).
-        + (* ok_type chaining *)
-        assert (H_neq : E <> C). {
-            refine (symmetry_neq
-                (distinct_parent _ C E fs ms H_directed_ct _ _)).
-            (* Object \notin CT *)
-            assumption.
-            (* binds *)
-            apply binds_first.
-        }
-        intro H_ok_E.
-        (* ok *)
-        eapply ok_subtable.
-        exact (symmetry_neq H_neq).
-        exact H_ok_E.
-        + (* binds *)
-        apply binds_first.
-        }
-    }
-    + (* neq  Going to use IHCT' as we've got a smaller CT now. *)
-    apply IHCT'.
-    * exact (weaken_directed_ct _ _ _ H_directed_ct).
-    * (* Obj \notin CT *) crush.
-
-    * (* Use H_Ind *)
-    intros C0 D0 fs' ms' H_ok' H_binds H_D0.
-    eapply H_Ind with (D0 := D0) (fs0 := fs') (ms0 := ms').
-    destruct H_ok'.
-    apply ok_obj.
-    apply ok_in_ct.
-    apply in_cons.
-    auto.
-
-    destruct (C0 == D).
-    (* eq *)
-    subst.
-    (* Contradiction , we've bound D twice, with D0 and E *)
-    exfalso.
-    inversion H_directed_ct.
-    subst.
-    apply binds_In in H_binds.
-    contradiction.
-    (* neq *)
-    refine (binds_other _ H_binds _).
-    auto.
-
-    assumption.
-    * (* Last argument of IHCT' *)
-    exact (ok_subtable _ _ _ _ n H_ok).
+    apply ClassTable_rect_inductive_step; assumption.
 Defined.
-
 
 Require Import Coq.Logic.JMeq.
 Require Import Program.
@@ -607,11 +619,11 @@ Proof.
     unfold eq_rect_r.
     unfold eq_rect.
     unfold eq_sym.
-    unfold ok_nil_object.
     dependent destruction H_ok; crush.
     - (* Inductive *)
     destruct a as [A [[B fs] ms]].
     unfold ClassTable_rect.
+    unfold ClassTable_rect_inductive_step.
     simpl.
     destruct (A == Object) as [H_eq | H_neq].
     +
@@ -621,6 +633,73 @@ Proof.
     +
     apply IHCT.
 Qed.
+
+Lemma ClassTable_ind_inv (CT : ctable)
+    (H_dir : directed_ct CT)
+    (H_noobj : Object \notin dom CT)
+    (P : cname -> Type)
+    (P_Obj : P Object)
+    (P_Ind : forall (C D : cname) fs ms,
+      ok_type_ CT D ->
+      binds C (D, fs, ms) CT ->
+      P D -> P C)
+    (C D : cname) fs ms
+    (H_ok_D : ok_type_ CT D)
+    (H_ok_C : ok_type_ CT C)
+    (H_binds :  binds C (D, fs, ms) CT)
+    :
+    (@ClassTable_rect CT P H_dir H_noobj P_Obj P_Ind C H_ok_C)
+    =
+    P_Ind C D fs ms H_ok_D H_binds
+    (* P D = *) (@ClassTable_rect
+        CT P H_dir H_noobj P_Obj P_Ind D H_ok_D).
+Proof.
+    (*
+    induction CT.
+    - solve_binds_nil.
+    -
+    destruct a as [A [[B fs'] ms']].
+    assert (A <> C) by admit.
+    assert (A <> D) by admit.
+    assert (B <> C) by admit.
+    assert (B <> D) by admit.
+    assert (C <> D) by admit.
+    assert (A <> B) by admit.
+    unfold ClassTable_rect at 1.
+    simpl.
+    unfold ClassTable_rect_inductive_step at 1.
+    simpl.
+    destruct (A == C).
+    crush.
+    (* TOOD *)
+    destruct (A == C).
+    + unfold eq_rect_r at 1.
+    unfold eq_rect at 1.
+    unfold eq_sym at 1.
+    dependent destruction e.
+    {
+    destruct (A == D).
+    -
+    dependent destruction e.
+    dependent destruction H_dir.
+    simpl.
+    dependent destruction o.
+    simpl.
+    unfold eq_ind_r.
+    unfold eq_ind.
+    unfold eq_rect.
+    unfold eq_sym.
+    exfalso.
+    apply binds_elim_eq in H_binds.
+    inversion H_binds.
+    subst.
+    crush.
+    - (* A <> D *)
+
+    (*refine (distinct_parent _ A A fs ms H_directed_ct _ _).*)
+    *)
+Abort.
+
 
 
 
