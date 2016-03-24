@@ -99,6 +99,14 @@ Definition ctable := (list (cname * (cname * flds * mths))).
  *  and define all the wrappers.
  *)
 
+Lemma weaken_no_obj : forall CT (A B : cname) (fs : flds) (ms : mths),
+    Object \notin dom ((A, (B, fs, ms)) :: CT) ->
+    Object \notin dom CT.
+Proof.
+    crush.
+Qed.
+
+
 (** * The grand induction theorem *)
 
 (** * Typing *)
@@ -299,6 +307,23 @@ Inductive sub_ (CT:ctable) : typ -> typ -> Prop :=
 
 Hint Constructors sub_.
 
+
+    (*
+    induction H_sub.
+    -
+    intros.
+    apply sub_refl.
+    -
+    intros.
+    apply sub_trans with (t2 := t2).
+    crush.
+    destruct (A == t2).
+    + subst.
+    exfalso.
+
+    crush.
+Abort. *)
+
 Lemma no_self_inheritance : forall CT : ctable,
     directed_ct CT ->
     Object \notin dom CT ->
@@ -444,8 +469,8 @@ Proof.
     induction H_sub.
     - crush.
     - crush.
-    - unfold_extends.
-    eauto.
+    - eauto. (* unfold_extends.
+    eauto. *)
 Qed.
 
 Lemma ClassTable_rect_base_case
@@ -556,7 +581,7 @@ Proof.
         eapply IHCT'.
         - exact (weaken_directed_ct _ _ _ H_directed_ct).
         - (* object \notin dom CT *)
-        abstract crush.
+        exact (weaken_no_obj _ _ _ _ _ H_noobj).
         - (* smaller H_Ind *)
         apply (ClassTable_rect_reduce_H_Ind P C E fs ms _ H_directed_ct H_Ind).
         - (* ok_type E *)
@@ -569,7 +594,8 @@ Proof.
     + (* neq  Going to use IHCT' as we've got a smaller CT now. *)
     apply IHCT'.
     * exact (weaken_directed_ct _ _ _ H_directed_ct).
-    * (* Obj \notin CT *) abstract crush.
+    * (* Obj \notin CT *)
+    exact (weaken_no_obj _ _ _ _ _ H_noobj).
     * (* Use H_Ind *)
     apply (ClassTable_rect_reduce_H_Ind P D E fs ms _ H_directed_ct H_Ind).
     * (* Last argument of IHCT' *)
@@ -633,7 +659,65 @@ Proof.
     +
     apply IHCT.
 Qed.
+Lemma weaken_P_Ind (CT : ctable)
+    (A B : cname) fs' ms'
+    (H_dir : directed_ct ((A, (B, fs', ms')) :: CT))
+    (H_noobj : Object \notin dom ((A, (B, fs', ms')) :: CT))
+    (P : cname -> Type)
+    (P_Ind : forall (C D : cname) fs ms,
+      ok_type_ ((A, (B, fs', ms')) :: CT) D ->
+      binds C (D, fs, ms) ((A, (B, fs', ms')) :: CT) ->
+      P D -> P C)
+    :
+    forall (C D : cname) fs' ms',
+    ok_type_ (CT) D ->
+    binds C (D, fs', ms') CT ->
+    P D -> P C.
+Proof.
+    Admitted.
 
+
+Lemma ClassTable_ind_inv_different (CT : ctable)
+    (A B : cname) fs' ms'
+    (H_dir : directed_ct ((A, (B, fs', ms')) :: CT))
+    (H_noobj : Object \notin dom ((A, (B, fs', ms')) :: CT))
+    (P : cname -> Type)
+    (P_Obj : P Object)
+    (P_Ind : forall (C D : cname) fs ms,
+      ok_type_ ((A, (B, fs', ms')) :: CT) D ->
+      binds C (D, fs, ms) ((A, (B, fs', ms')) :: CT) ->
+      P D -> P C)
+    (C D : cname) fs ms
+    (H_neq : C <> A)
+    (H_ok_C : ok_type_ ((A, (B, fs', ms')) :: CT) C)
+    (H_ok_D : ok_type_ ((A, (B, fs', ms')) :: CT) D)
+    (H_binds :  binds C (D, fs, ms) ((A, (B, fs', ms')) :: CT))
+    :
+    (@ClassTable_rect ((A, (B, fs', ms')) :: CT) P H_dir H_noobj P_Obj P_Ind C H_ok_C)
+    =
+    (@ClassTable_rect CT P
+    (weaken_directed_ct _ _ _ H_dir)
+    (weaken_no_obj _ _ _ _ _ H_noobj)
+    P_Obj
+    (weaken_P_Ind CT A B fs' ms' H_dir H_noobj P P_Ind)
+    C
+    (ok_subtable _ _ _ _ (symmetry_neq H_neq) H_ok_C)).
+Proof.
+    unfold ClassTable_rect at 1.
+    simpl.
+    unfold ClassTable_rect_inductive_step at 1.
+    simpl.
+    destruct (A == C).
+    - exfalso;  symmetry in e; auto.
+    -
+    unfold ClassTable_rect at 1.
+    simpl.
+Abort.
+
+
+(* TODO
+* This isn't working because we get a really large goal statement.
+*)
 Lemma ClassTable_ind_inv (CT : ctable)
     (H_dir : directed_ct CT)
     (H_noobj : Object \notin dom CT)
@@ -654,31 +738,31 @@ Lemma ClassTable_ind_inv (CT : ctable)
     (* P D = *) (@ClassTable_rect
         CT P H_dir H_noobj P_Obj P_Ind D H_ok_D).
 Proof.
-    (*
     induction CT.
-    - solve_binds_nil.
+    -
+    solve_binds_nil.
     -
     destruct a as [A [[B fs'] ms']].
-    assert (A <> C) by admit.
-    assert (A <> D) by admit.
-    assert (B <> C) by admit.
-    assert (B <> D) by admit.
-    assert (C <> D) by admit.
-    assert (A <> B) by admit.
     unfold ClassTable_rect at 1.
     simpl.
     unfold ClassTable_rect_inductive_step at 1.
     simpl.
-    destruct (A == C).
-    crush.
-    (* TOOD *)
+    (* TODO *)
     destruct (A == C).
     + unfold eq_rect_r at 1.
     unfold eq_rect at 1.
     unfold eq_sym at 1.
     dependent destruction e.
     {
+    unfold ok_head_parent.
+    dependent destruction H_dir.
+    simpl.
+    dependent destruction o.
+    -
+    simpl.
     destruct (A == D).
+Abort.
+(*
     -
     dependent destruction e.
     dependent destruction H_dir.
@@ -697,10 +781,83 @@ Proof.
     - (* A <> D *)
 
     (*refine (distinct_parent _ A A fs ms H_directed_ct _ _).*)
-    *)
 Abort.
+*)
 
 
+Lemma object_sub_top : forall CT C,
+    Object \notin dom CT ->
+    directed_ct CT ->
+    ok_type_ CT C ->
+    sub_ CT C Object.
+Proof.
+    intros CT C H_noobj H_dir H_ok.
+
+    refine((ClassTable_rect CT 
+        (fun C:cname => sub_ CT C Object)
+        H_dir  H_noobj  _(*PO*) _(*PInd*))
+    C H_ok).
+    apply sub_refl.
+
+    clear C H_ok.
+    intros C D fs ms H_ok H_binds H_sub.
+    apply sub_trans with (t2 := D).
+    apply sub_extends.
+    -
+    unfold extends_.
+    exists fs ms.
+    exact H_binds.
+    -
+    exact H_sub.
+Qed.
+
+
+
+Lemma weaken_sub (CT:ctable) : forall C D A B ms fs,
+    directed_ct ((A, (B, fs, ms))::CT) ->
+    (* ok_type_ CT C -> *)
+    (* Object \notin dom CT -> *)
+    A <> C ->
+    (* ok_type_ CT D -> *)
+    sub_ ((A, (B, fs, ms)) :: CT) C D ->
+    sub_ CT C D.
+Proof.
+    intros C D A B ms fs.
+    intros H_dir H_neq H_sub.
+    induction H_sub.
+    - auto.
+    - apply sub_trans with (t2:=t2).
+    crush.
+    unfold_directed.
+    destruct (A == t2).
+    subst.
+    crush.
+
+
+
+Qed.
+Lemma strengthen_sub (CT:ctable) : forall C D A B ms fs,
+    directed_ct CT ->
+    ok_type_ CT C ->
+    Object \notin dom CT ->
+    A <> C ->
+    sub_ CT C D ->
+    ok_type_ CT D ->
+    sub_ ((A, (B, fs, ms)) :: CT) C D.
+Proof.
+    intros C D A B ms fs H_dir H_ok_C H_noobj H_neq H_sub H_ok_D.
+    refine((ClassTable_rect CT 
+        (fun D:cname => sub_ ((A, (B, fs, ms)) :: CT) C D)
+        H_dir  H_noobj  _(*PO*) _(*PInd*))
+    D H_ok_D).
+    -
+    apply object_sub_top.
+    admit.
+    admit.
+    admit.
+    -
+    intros.
+Abort.
 
 
 (* TODO Restructure below this point still *)
@@ -864,6 +1021,23 @@ Definition mresolve2 (CT: ctable) (m: mname)
     end).
 
 
+(* mresolve3 CT C m D means that when starting with child class C,
+* and looking for a method D, we find the method on class D. *)
+Inductive mresolve3 : ctable -> cname -> mname -> cname -> Prop :=
+| MResolve_Head_Direct : forall CT m C D (ms: mths) fs,
+        m \in dom ms ->
+        mresolve3 ((C, (D, fs, ms)) :: CT) C m C
+| MResolve_Head_Inherit : forall CT m C D E (ms: mths) fs,
+        m \notin dom ms ->
+        mresolve3 CT D m E ->
+        mresolve3 ((C, (D, fs, ms)) :: CT) C m E
+| MResolve_Tail : forall CT m A B C D (ms: mths) fs,
+        C <> A ->
+        mresolve3 CT C m D ->
+        mresolve3 ((A, (B, fs, ms)) :: CT) C m D.
+        
+
+
 Definition declares_m (C:cname) (m:mname) : Prop :=
     (exists D fs ms, binds C (D, ms, fs) CT /\ m \in dom ms).
 
@@ -883,7 +1057,6 @@ Fixpoint constructor_helper (CT: ctable) (ancestors: list cname) :=
 
 Definition constructor (C:cname) : list (fname * typ) :=
     constructor_helper CT (lineage CT C).
-
 
 
 (*
@@ -1836,6 +2009,122 @@ Proof.
     end)
     (ok_obj CT0)).
 Qed.
+
+Lemma mresolve3_result_in_CT : forall CT (m:mname) C D,
+    directed_ct CT ->
+    mresolve3 CT C m D ->
+    D \in dom CT.
+Proof.
+    clear.
+    intros CT m C D H_dir.
+    generalize C.  clear C.
+    induction CT.
+    -
+    intros C H_mres.
+    exfalso.
+    inversion H_mres.
+    -
+    intros C H_mres.
+    destruct a as [A [[B fs] ms]].
+    assert (H_dir' : directed_ct CT0) by
+        exact (weaken_directed_ct _ _ _ H_dir).
+    {
+    inversion H_mres.
+    - subst. crush.
+    - subst.
+    rename H8 into H_mres'.
+    simpl.
+    right.
+    exact (IHCT H_dir' B H_mres').
+    -
+    subst.
+    rename H8 into H_mres'.
+    simpl.
+    right.
+    exact (IHCT H_dir' C H_mres').
+    }
+Qed.
+
+
+Lemma mresolve3_subclass : forall CT (m:mname) C D,
+    (* directed_ct CT -> *)
+    mresolve3 CT C m D ->
+    sub_ CT C D.
+Proof.
+    clear.
+    intros CT m C D.
+    generalize C; clear C.
+    induction CT.
+    -
+    intros.
+    inversion H.
+    -
+    {
+    intros C H_mres.
+    inversion H_mres.
+    -
+    subst.
+    crush.
+    - subst.
+    apply (sub_trans _ C D0 D).
+    apply sub_extends.
+    +
+    unfold extends_.
+    exists fs.
+    exists ms.
+    auto.
+    +
+    assert ((sub_ CT0) D0 D) by auto.
+
+| sub_trans : forall t1 t2 t3, sub_ CT t1 t2 -> sub_ CT t2 t3 -> sub_ CT t1 t3
+
+
+
+
+
+
+Lemma mresolve3_in_CT_A : forall CT_A CT_L (m:mname) C D,
+    directed_ct (CT_A ++ CT_L) ->
+    mresolve3 (CT_A ++ CT_L) C m D ->
+    D \in dom CT_A ->
+    C \in dom CT_A.
+Proof.
+    clear.
+    intros CT_A CT_L.
+    intros m C D H_dir H_mres H_D_in.
+    induction CT_A.
+    - exfalso.
+    crush.
+    -
+    destruct a as [A [[B fs] ms]].
+    assert (H_dir': directed_ct (CT_A0 ++ CT_L)) by
+        exact (weaken_directed_ct _ _ _ H_dir).
+    inversion H_mres.
+    + crush.
+    + crush.
+    + subst.
+    rename H8 into H_mres'.
+    simpl.
+    right.
+    assert (IH: D \in dom CT_A0 -> C \in dom CT_A0) by auto .
+    clear IHCT_A.
+    apply IH.
+    app
+    {
+    destruct (D == A).
+    -
+    subst.
+    
+    refine (mresolve3_result_in_CT _ _ _ _ _ _).
+    exfalso.
+    (* Contradiction as CT_A0 no longer contains A,
+    * and CT_L doesn't contain A, so we'll never resolve m to A. *)
+    
+
+    (* This is false because in order for
+Qed.
+
+
 
 Lemma mresolve_in_CT_A (C : cname) : forall (m:mname) C'
     (H_ok : ok_type_ CT C),
