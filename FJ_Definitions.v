@@ -105,6 +105,7 @@ Lemma weaken_no_obj : forall CT (A B : cname) (fs : flds) (ms : mths),
 Proof.
     crush.
 Qed.
+Hint Resolve weaken_no_obj.
 
 
 (** * The grand induction theorem *)
@@ -302,7 +303,7 @@ Ltac unfold_ok_type :=
 (* (S-Ref) (S-Trans) (S-Sub) are defined here. *)
 
 Inductive sub_ (CT:ctable) : typ -> typ -> Prop :=
-| sub_refl : forall t, sub_ CT t t
+| sub_refl : forall t, ok_type_ CT t -> sub_ CT t t
 | sub_trans : forall t1 t2 t3,
         sub_ CT t1 t2 -> sub_ CT t2 t3 -> sub_ CT t1 t3
 | sub_extends : forall C D, @extends_ CT C D -> sub_ CT C D.
@@ -819,17 +820,20 @@ Proof.
         (fun C:cname => sub_ CT C Object)
         H_dir  H_noobj  _(*PO*) _(*PInd*))
     C H_ok).
+    -
     apply sub_refl.
+    constructor.
+    -
 
     clear C H_ok.
     intros C D fs ms H_ok H_binds H_sub.
     apply sub_trans with (t2 := D).
-    -
+    +
     apply sub_extends.
     unfold extends_.
     exists fs ms.
     exact H_binds.
-    -
+    +
     exact H_sub.
 Qed.
 
@@ -938,13 +942,13 @@ Proof.
 Qed.
 
 
-Lemma not_your_father (CT:ctable) : forall C D A B ms fs,
+Lemma not_your_father (CT:ctable) : forall A B C D fs ms,
     directed_ct ((A, (B, fs, ms)) :: CT) ->
     Object \notin dom ((A, (B, fs, ms)) :: CT) ->
     ssub_ ((A, (B, fs, ms)) :: CT) C D ->
     A <> D.
 Proof.
-    intros C D A B ms fs H_dir H_noobj H_sub.
+    intros A B C D fs ms H_dir H_noobj H_sub.
     unfold not.
     induction H_sub.
     auto.
@@ -973,64 +977,142 @@ Proof.
     destruct H_binds; crush.
 Qed.
 
-Lemma weaken_ssub (CT:ctable) : forall C D A B ms fs,
-    directed_ct ((A, (B, fs, ms))::CT) ->
+Lemma weaken_ssub (CT:ctable) C D A B fs ms
+    (H_dir: directed_ct ((A, (B, fs, ms))::CT))
     (* ok_type_ CT C -> *)
-    (* Object \notin dom CT -> *)
+    (H_noobj: Object \notin dom ((A, (B, fs, ms)) :: CT))
     (* ok_type_ CT D -> *)
-    A <> C ->
-    ssub_ ((A, (B, fs, ms)) :: CT) C D ->
-    ssub_ CT C D.
+    (H_neq: A <> C)
+    (H_sub: ssub_ ((A, (B, fs, ms)) :: CT) C D)
+    : ssub_ CT C D.
 Proof.
-    intros C D A B ms fs.
-    intros H_dir H_neq H_sub.
     induction H_sub.
     - apply ssub_trans with (t2:=t2).
     +
     crush.
     +
     unfold_directed.
-    assert(H_ok_1: ok_type_ ((A, (B, fs, ms)) :: CT) t1).
-    eapply ssub_ok_1.
-    exact H_sub1.
-    assert(H_ok_2: ok_type_ ((A, (B, fs, ms)) :: CT) t2).
-    eapply ssub_ok_1.
-    exact H_sub2.
-    assert(H_ok_3: ok_type_ ((A, (B, fs, ms)) :: CT) t3).
-    eapply ssub_ok_2.
-    exact H_dir.
-    exact H_sub2.
-    destruct H_ok_2.
-
+    assert (H_neq2 : A <> t2).
+    refine (not_your_father CT A B t1 t2 fs ms H_dir H_noobj H_sub1 ).
+    auto.
     -
     unfold_extends.
+    apply binds_elim_neq in H_binds; auto.
+    constructor.
+    unfold extends_.
+    exists fs0 ms0.
+    exact (H_binds).
 Qed.
 
-
-
+Lemma ssub_anti_reflexive CT C
+    (H_noobj: Object \notin dom CT)
+    (H_dir: directed_ct CT)
+    : ssub_ CT C C -> False.
+Proof.
+    intros H_sub.
+    induction CT.
+    -
+    induction H_sub; auto.
+    -
+    destruct a as [A [[B fs] ms]].
+    unfold_directed.
+    assert (H_neq: A <> C) by
+    exact (not_your_father CT A B C C fs ms H_dir H_noobj H_sub).
+    +
+    apply IHCT. crush. auto.
+    refine (weaken_ssub CT C C A B fs ms H_dir H_noobj H_neq H_sub).
 Qed.
-Lemma strengthen_sub (CT:ctable) : forall C D A B ms fs,
+
+Lemma no_ssub_with_empty_table C D :
+    ssub_ [] C D ->
+    False.
+Proof.
+    intros H_sub.
+    induction H_sub;  auto.
+Qed.
+Hint Resolve no_ssub_with_empty_table.
+
+Lemma anti_symmetric_ssub (CT: ctable) C D :
     directed_ct CT ->
-    ok_type_ CT C ->
     Object \notin dom CT ->
+    ssub_ CT C D ->
+    ssub_ CT D C ->
+    False.
+Proof.
+    intros H_dir H_noobj H_CD H_DC.
+    induction CT.
+    eauto.
+    destruct a as [A [[B fs] ms]].
+    unfold_directed.
+    apply IHCT.
+    auto.
+    eauto.
+
+    assert (H_neq_AC: A <> C) by
+    exact (not_your_father CT A B D C fs ms H_dir H_noobj H_DC).
+    apply (weaken_ssub CT C D A B fs ms H_dir H_noobj H_neq_AC H_CD).
+    assert (H_neq_AD: A <> D) by
+    exact (not_your_father CT A B C D fs ms H_dir H_noobj H_CD).
+    apply (weaken_ssub CT D C A B fs ms H_dir H_noobj H_neq_AD H_DC).
+
+Qed.
+
+
+Lemma strengthen_sub (CT:ctable) : forall C D A B ms fs,
+    directed_ct ((A, (B, fs, ms)) :: CT) ->
+    ok_type_ ((A, (B, fs, ms)) :: CT) C ->
+    Object \notin dom ((A, (B, fs, ms)) :: CT) ->
     A <> C ->
     sub_ CT C D ->
     ok_type_ CT D ->
     sub_ ((A, (B, fs, ms)) :: CT) C D.
 Proof.
     intros C D A B ms fs H_dir H_ok_C H_noobj H_neq H_sub H_ok_D.
-    refine((ClassTable_rect CT 
-        (fun D:cname => sub_ ((A, (B, fs, ms)) :: CT) C D)
-        H_dir  H_noobj  _(*PO*) _(*PInd*))
-    D H_ok_D).
+    unfold_directed.
+    assert (H_ok_C_weak: ok_type_ CT C).
+    refine (weaken_ok_type CT C _ _ H_neq H_ok_C).
+    refine((ClassTable_rect CT
+        (fun C:cname => sub_ ((A, (B, fs, ms)) :: CT) C D)
+        H_dir0  _  _(*PO*) _(*PInd*))
+    C H_ok_C_weak).
+    - (* Object \notin dom CT *)
+    crush.
+    - (* sub_ (A, (B, fs ms)) ::CT  Object D *)
+
+
+    destruct (D == Object).
+    +
+    subst.
+    apply sub_refl.
+    constructor.
+    +
+    
+
+Lemma object_sub_top : forall CT C,
+    Object \notin dom CT ->
+    directed_ct CT ->
+    ok_type_ CT C ->
+    sub_ CT C Object.
+    apply object_sub_top (with.
+    admit; apply object_ssub_top; auto.
+
     -
-    apply object_sub_top.
-    admit.
-    admit.
-    admit.
-    -
-    intros.
-Abort.
+    clear H_sub H_ok_C C H_neq H_ok_C_weak.
+    intros C E fs' ms' H_ok_E H_binds H_sub.
+    assert (H_C_in: C \in keys CT) by eauto.
+    assert (H_neq: C <> A). {
+        unfold not;  intros;  subst;  contradiction.
+    }
+    assert (H_binds2 : binds C (E, fs', ms') ((A, (B, fs, ms)) :: CT)). {
+    apply binds_elim_neq with (y:=A) (b:=(B,fs,ms)); auto.
+    }
+
+    assert (H_ssub_CE: ssub_ ((A, (B,fs,ms)):: CT) C E).  {
+        constructor.
+        exists fs' ms'; auto.
+    }
+    apply ssub_trans with (t2:=E); auto.
+Qed.
 
 
 (* TODO Restructure below this point still *)
