@@ -74,10 +74,22 @@ Fixpoint embed_exp {b} (e : exp_ b) : exp_l :=
     | e_lib => e_lib
     end.
 
-Section GenericOverLib.
-Variable with_lib : bool.
+Module Type GenericOverExprSig.
+Parameter exp : Set.
+End GenericOverExprSig.
 
-Definition exp := exp_ with_lib.
+Module ExprWithoutLib <: GenericOverExprSig.
+Definition exp := exp_a.
+End ExprWithoutLib.
+
+Module ExprWithLib <: GenericOverExprSig.
+Definition exp := exp_l.
+End ExprWithLib.
+
+(* Definition exp := exp_ with_lib. *)
+Module Export GenericOverExpr (ModuleThatDefinesExp: GenericOverExprSig).
+Import ModuleThatDefinesExp.
+
 
 Definition env := (list (var * typ)).
 Definition benv := (list (var * exp)).
@@ -99,16 +111,8 @@ Definition ctable := (list (cname * (cname * flds * mths))).
  *  and define all the wrappers.
  *)
 
-Lemma weaken_no_obj : forall CT (A B : cname) (fs : flds) (ms : mths),
-    Object \notin dom ((A, (B, fs, ms)) :: CT) ->
-    Object \notin dom CT.
-Proof.
-    crush.
-Qed.
-Hint Resolve weaken_no_obj.
 
 
-(** * The grand induction theorem *)
 
 (** * Typing *)
 
@@ -121,6 +125,93 @@ Inductive ok_type_ (CT:ctable) : typ -> Prop :=
 | ok_in_ct: forall C, C \in dom CT -> @ok_type_ CT C.
 
 Hint Constructors ok_type_.
+
+(** [directed_ct CT] holds when the ctable only has references to already
+  * existing classes for inheritance *)
+
+Inductive directed_ct : ctable -> Prop :=
+| directed_ct_nil : directed_ct nil
+| directed_ct_cons :
+        forall (C D : cname) (fs : flds) (ms: mths) (ct : ctable),
+        directed_ct ct ->
+        C \notin (keys ct) -> (* No duplicate bindings *)
+        ok_type_ ct D ->    (* No forward references *)
+        directed_ct ((C, (D, fs, ms)) :: ct).
+
+Hint Constructors directed_ct.
+
+(** [extends C D] holds if [C] is a direct subclass of [D]. *)
+
+Definition extends_ (CT:ctable) (C D : cname) : Prop :=
+    exists fs, exists ms, binds C (D,fs,ms) CT.
+Hint Unfold extends_.
+
+(** [sub s u] holds if [s] is a subtype of [u]. The subtype relation is the
+    reflexive, transitive closure of the direct subclass relation. *)
+
+(* (S-Ref) (S-Trans) (S-Sub) are defined here. *)
+
+Inductive sub_ (CT:ctable) : typ -> typ -> Prop :=
+| sub_refl : forall t, ok_type_ CT t -> sub_ CT t t
+| sub_trans : forall t1 t2 t3,
+        sub_ CT t1 t2 -> sub_ CT t2 t3 -> sub_ CT t1 t3
+| sub_extends : forall C D, @extends_ CT C D -> sub_ CT C D.
+
+
+(* Strict subset *)
+Inductive ssub_ (CT:ctable) : typ -> typ -> Prop :=
+| ssub_trans : forall t1 t2 t3,
+        ssub_ CT t1 t2 ->
+        ssub_ CT t2 t3 ->
+        ssub_ CT t1 t3
+| ssub_extends : forall t1 t2, @extends_ CT t1 t2 -> ssub_ CT t1 t2.
+
+Hint Constructors sub_ ssub_.
+
+Ltac unfold_extends :=
+    match goal with
+    | [ H: (extends_ ?CT ?C ?D) |- _] => destruct H as [?fs [?ms ?H_binds]]
+    end.
+Hint Extern 1 => unfold_extends.
+Ltac solve_binds_nil :=
+    match goal with
+    | [H: (binds ?C ?x ?nil) |- _] => exfalso; apply binds_nil2 in H; assumption
+    end.
+Hint Extern 1 False => solve_binds_nil.
+
+(* This gives reasonable names to things. *)
+Ltac unfold_directed :=
+    match goal with
+    | [ H_directed: (directed_ct (_ :: _)) |- _] =>
+    inversion H_directed
+    as [ | ?C ?D ?fs ?ms ?CT ?H_dir ?H_noobj ?H_ok ] ; subst
+    end.
+(* This will cause it to run unconditionally on all autos... *)
+(* Hint Extern 3 => unfold_directed. *)
+
+Ltac unfold_ok_type :=
+    match goal with
+    | [ H_ok_type: (ok_type_ (_ :: _)) |- _] =>
+    inversion H_ok_type
+    end.
+
+
+
+(* Always break down directed_ct (x :: xs) into some information about x
+* and directed_ct xs.
+*)
+Hint Extern 1 (directed_ct ?x) =>
+    match goal with
+    | [ H: directed_ct (?x :: ?xs) |- _ ] => inversion H; subst
+    end.
+
+Lemma weaken_no_obj : forall CT (A B : cname) (fs : flds) (ms : mths),
+    Object \notin dom ((A, (B, fs, ms)) :: CT) ->
+    Object \notin dom CT.
+Proof.
+    crush.
+Qed.
+Hint Resolve weaken_no_obj.
 
 Lemma weaken_ok_type CT C D p
     (H_neq : D <> C)
@@ -156,28 +247,6 @@ Proof.
     - exfalso.
     crush.
 Defined.
-
-(** [directed_ct CT] holds when the ctable only has references to already
-  * existing classes for inheritance *)
-
-Inductive directed_ct : ctable -> Prop :=
-| directed_ct_nil : directed_ct nil
-| directed_ct_cons :
-        forall (C D : cname) (fs : flds) (ms: mths) (ct : ctable),
-        directed_ct ct ->
-        C \notin (keys ct) -> (* No duplicate bindings *)
-        ok_type_ ct D ->    (* No forward references *)
-        directed_ct ((C, (D, fs, ms)) :: ct).
-
-Hint Constructors directed_ct.
-
-(* Always break down directed_ct (x :: xs) into some information about x
-* and directed_ct xs.
-*)
-Hint Extern 1 (directed_ct ?x) =>
-    match goal with
-    | [ H: directed_ct (?x :: ?xs) |- _ ] => inversion H; subst
-    end.
 
 Lemma weaken_directed_ct : forall x v ct,
     directed_ct ((x, v) :: ct) ->
@@ -262,63 +331,7 @@ Hint Resolve directed_binds.
 
 (** ** Subtyping *)
 
-(** [extends C D] holds if [C] is a direct subclass of [D]. *)
 
-Definition extends_ (CT:ctable) (C D : cname) : Prop :=
-    exists fs, exists ms, binds C (D,fs,ms) CT.
-
-Hint Unfold extends_.
-Ltac unfold_extends :=
-    match goal with
-    | [ H: (extends_ ?CT ?C ?D) |- _] => destruct H as [?fs [?ms ?H_binds]]
-    end.
-Hint Extern 1 => unfold_extends.
-Ltac solve_binds_nil :=
-    match goal with
-    | [H: (binds ?C ?x ?nil) |- _] => exfalso; apply binds_nil2 in H; assumption
-    end.
-Hint Extern 1 False => solve_binds_nil.
-
-(* This gives reasonable names to things. *)
-Ltac unfold_directed :=
-    match goal with
-    | [ H_directed: (directed_ct (_ :: _)) |- _] =>
-    inversion H_directed
-    as [ | ?C ?D ?fs ?ms ?CT ?H_dir ?H_noobj ?H_ok ] ; subst
-    end.
-(* This will cause it to run unconditionally on all autos... *)
-(* Hint Extern 3 => unfold_directed. *)
-
-Ltac unfold_ok_type :=
-    match goal with
-    | [ H_ok_type: (ok_type_ (_ :: _)) |- _] =>
-    inversion H_ok_type
-    end.
-
-
-
-(** [sub s u] holds if [s] is a subtype of [u]. The subtype relation is the
-    reflexive, transitive closure of the direct subclass relation. *)
-
-(* (S-Ref) (S-Trans) (S-Sub) are defined here. *)
-
-Inductive sub_ (CT:ctable) : typ -> typ -> Prop :=
-| sub_refl : forall t, ok_type_ CT t -> sub_ CT t t
-| sub_trans : forall t1 t2 t3,
-        sub_ CT t1 t2 -> sub_ CT t2 t3 -> sub_ CT t1 t3
-| sub_extends : forall C D, @extends_ CT C D -> sub_ CT C D.
-
-Hint Constructors sub_.
-
-(* Struct subset of *)
-Inductive ssub_ (CT:ctable) : typ -> typ -> Prop :=
-| ssub_trans : forall t1 t2 t3,
-        ssub_ CT t1 t2 ->
-        ssub_ CT t2 t3 ->
-        ssub_ CT t1 t3
-| ssub_extends : forall t1 t2, @extends_ CT t1 t2 -> ssub_ CT t1 t2.
-
-Hint Constructors ssub_.
 
 Lemma ssub_to_sub (CT: ctable): forall A B,
     ssub_ CT A B ->
@@ -496,6 +509,9 @@ Proof.
     eauto. *)
 Qed.
 
+(* End simple facts about our predicates. *)
+
+(** * The grand induction theorem *)
 Lemma ClassTable_rect_base_case
 (    P : cname -> Type)
 (H_directed_ct : directed_ct nil)
@@ -645,6 +661,8 @@ Proof.
     apply ClassTable_rect_inductive_step; assumption.
 Defined.
 
+(* Attempt to show usful Set level facts about ClassTable *)
+(*
 Require Import Coq.Logic.JMeq.
 Require Import Program.
 
@@ -697,7 +715,7 @@ Lemma weaken_P_Ind (CT : ctable)
     binds C (D, fs', ms') CT ->
     P D -> P C.
 Proof.
-    Admitted.
+Abort.
 
 
 Lemma ClassTable_ind_inv_different (CT : ctable)
@@ -807,6 +825,8 @@ Abort.
 Abort.
 *)
 
+*)
+
 
 Lemma object_sub_top : forall CT C,
     Object \notin dom CT ->
@@ -831,7 +851,8 @@ Proof.
     +
     apply sub_extends.
     unfold extends_.
-    exists fs ms.
+    exists fs.
+    exists ms.
     exact H_binds.
     +
     exact H_sub.
@@ -844,7 +865,6 @@ Lemma object_ssub_top' : forall CT C,
     C = Object \/ ssub_ CT C Object.
 Proof.
     intros CT C H_noobj H_dir H_ok.
-
 
     refine((ClassTable_rect CT
         (fun C:cname => C = Object \/ ssub_ CT C Object)
@@ -862,7 +882,8 @@ Proof.
     right.
     apply ssub_extends.
     unfold extends_.
-    exists fs ms.
+    exists fs.
+    exists ms.
     exact H_binds.
     -
     right.
@@ -871,7 +892,7 @@ Proof.
     +
     apply ssub_extends.
     unfold extends_.
-    exists fs ms.
+    exists fs; exists ms.
     exact H_binds.
     +
     exact H.
@@ -965,7 +986,7 @@ Proof.
     unfold not.
     intros H.
     apply H.
-    exists fs0 ms0.
+    exists fs0; exists ms0.
     exact (H_binds).
     -
     intros H_eq.
@@ -1000,7 +1021,7 @@ Proof.
     apply binds_elim_neq in H_binds; auto.
     constructor.
     unfold extends_.
-    exists fs0 ms0.
+    exists fs0; exists ms0.
     exact (H_binds).
 Qed.
 
@@ -1024,7 +1045,7 @@ Proof.
 Qed.
 
 Lemma no_ssub_with_empty_table C D :
-    ssub_ [] C D ->
+    ssub_ nil C D ->
     False.
 Proof.
     intros H_sub.
@@ -1056,6 +1077,18 @@ Proof.
     apply (weaken_ssub CT D C A B fs ms H_dir H_noobj H_neq_AD H_DC).
 
 Qed.
+Hint Resolve anti_symmetric_ssub.
+
+Lemma object_ssub_not_bot CT C
+    (H_noobj: Object \notin dom CT)
+    (H_dir: directed_ct CT)
+    (H_ok: ok_type_ CT C)
+    (H_sub: ssub_ CT Object C)
+    : False.
+Proof.
+
+Qed.
+Hint Resolve object_ssub_not_bot.
 
 
 Lemma strengthen_sub (CT:ctable) : forall C D A B ms fs,
@@ -1086,6 +1119,7 @@ Proof.
     apply sub_refl.
     constructor.
     +
+Qed.
     
 
 Lemma object_sub_top : forall CT C,
