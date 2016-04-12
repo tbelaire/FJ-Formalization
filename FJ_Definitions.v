@@ -65,12 +65,12 @@ Definition exp_l := exp_ true.
 
 Fixpoint embed_exp {b} (e : exp_ b) : exp_l :=
     match e with
-    | e_var _ v => e_var v
-    | e_field _ o f => e_field (embed_exp o) f
-    | e_meth _ o m args =>
+    | @e_var _ v => e_var v
+    | @e_field _ o f => e_field (embed_exp o) f
+    | @e_meth _ o m args =>
             e_meth (embed_exp o) m (List.map embed_exp args)
-    | e_new _ C args => e_new C (List.map embed_exp args)
-    | e_cast _ C e => e_cast C (embed_exp e)
+    | @e_new _ C args => e_new C (List.map embed_exp args)
+    | @e_cast _ C e => e_cast C (embed_exp e)
     | e_lib => e_lib
     end.
 
@@ -160,14 +160,15 @@ Inductive sub_ (CT:ctable) : typ -> typ -> Prop :=
 
 
 (* Strict subset *)
-Inductive ssub_ (CT:ctable) : typ -> typ -> Prop :=
-| ssub_trans : forall t1 t2 t3,
+Inductive ssub_ : ctable -> typ -> typ -> Prop :=
+| ssub_trans : forall CT t1 t2 t3,
         ssub_ CT t1 t2 ->
         ssub_ CT t2 t3 ->
         ssub_ CT t1 t3
-| ssub_extends : forall t1 t2, @extends_ CT t1 t2 -> ssub_ CT t1 t2.
+| ssub_extends : forall CT t1 t2, @extends_ CT t1 t2 -> ssub_ CT t1 t2.
 
 Hint Constructors sub_ ssub_.
+
 
 Ltac unfold_extends H := destruct H as [?fs [?ms ?H_binds]].
 Hint Extern 1 => match goal with
@@ -319,6 +320,48 @@ Hint Resolve directed_binds.
 (** ** Subtyping *)
 
 
+
+
+Lemma ssub__ind_old : 
+  forall (CT : ctable) (P : typ -> typ -> Prop),
+ (forall t1 t2 t3 : typ,
+ssub_ CT t1 t2 -> P t1 t2 -> ssub_ CT t2 t3 -> P t2 t3 -> P t1 t3) ->
+ (forall t1 t2 : cname, extends_ CT t1 t2 -> P t1 t2) ->
+forall C D : typ, ssub_ CT C D -> P C D.
+Proof.
+    intros CT P P_trans P_extends.
+    intros C D H_sub.
+    induction H_sub.
+    -
+    apply P_trans with (t2:=t2).
+    auto.
+    apply IHH_sub1.
+    intros t4 t5 t6 H_sub45 P45 H_sub56 P56.
+    apply P_trans with (t2:=t5); auto.
+    exact P_extends.
+    auto.
+
+    apply IHH_sub2.
+    intros t4 t5 t6 H_sub45 P45 H_sub56 P56.
+    apply P_trans with (t2:=t5); auto.
+    exact P_extends.
+    -
+    apply P_extends.
+    unfold_extends H.
+    unfold extends_.
+    exists fs, ms.
+    exact H_binds.
+Qed.
+
+(* Here's the current one for comparison
+ssub__ind
+     : forall P : ctable -> typ -> typ -> Prop,
+       (forall (CT : ctable) (t1 t2 t3 : typ),
+        ssub_ CT t1 t2 ->
+        P CT t1 t2 -> ssub_ CT t2 t3 -> P CT t2 t3 -> P CT t1 t3) ->
+       (forall (CT : ctable) (t1 t2 : cname), extends_ CT t1 t2 -> P CT t1 t2) ->
+       forall (c : ctable) (t t0 : typ), ssub_ c t t0 -> P c t t0
+       *)
 
 Lemma ssub_to_sub (CT: ctable): forall A B,
     ssub_ CT A B ->
@@ -641,25 +684,70 @@ Proof.
     exact (weaken_ok_type _ _ _ _ _ _ n H_ok).
 Defined.
 
-Theorem ClassTable_rect (CT :ctable) : forall P : cname -> Type,
-    directed_ct CT ->
-    Object \notin dom CT ->
-    P Object ->
-    (forall (C D : cname) fs ms,
+(* Rules for induciton principles *)
+(* 
+   forall CT ,                          (induction parameters)
+   forall P: cname -> Type, (predicates)
+   branch1, branch2, ... , branchr,                    (branches of the principle)
+   forall (x1:Ti_1) (x2:Ti_2) ... (xni:Ti_ni),         (induction arguments)
+   (HI: I prm1..prmp x1...xni)                         (optional main ind)
+   *)
+
+Theorem ClassTable_rect (CT :ctable) 
+    (P : cname -> Type)
+    (H_obj: P Object)
+    (H_ind: (forall (C D : cname) fs ms,
       ok_type_ CT D ->
       binds C (D, fs, ms) CT ->
-      P D -> P C) ->
-    (forall C: cname, ok_type_ CT C -> P C).
+      P D -> P C))
+    : forall C: cname,
+    forall (H_dir: directed_ct CT)
+    (H_noobj: Object \notin dom CT)
+    (H_ok: ok_type_ CT C),
+    P C.
 Proof.
-    intros P H_directed_ct H_noobj H_Obj H_Ind C H_ok.
-    generalize H_ok. clear H_ok.
-    generalize C. clear C.
     induction CT as [| [D [[E fs] ms]] CT'].
     - (* nil *)
-    apply ClassTable_rect_base_case; assumption.
+    intros.
+    apply ClassTable_rect_base_case; auto.
     - (* cons *)
-    apply ClassTable_rect_inductive_step; assumption.
+    intros C H_dir H_noobj.
+    apply ClassTable_rect_inductive_step; auto.
 Defined.
+
+Lemma object_sub_top : forall CT C,
+    Object \notin dom CT ->
+    directed_ct CT ->
+    ok_type_ CT C ->
+    sub_ CT C Object.
+Proof.
+    intros CT C H_noobj H_dir H_ok.
+    (* THIS LINE *)
+    induction CT  using ClassTable_rect .
+    fail.
+
+    refine((ClassTable_rect CT 
+        (fun C:cname => sub_ CT C Object)
+        H_dir  H_noobj  _(*PO*) _(*PInd*))
+    C H_ok).
+    -
+    apply sub_refl.
+    constructor.
+    -
+
+    clear C H_ok.
+    intros C D fs ms H_ok H_binds H_sub.
+    apply sub_trans with (t2 := D).
+    +
+    apply sub_extends.
+    unfold extends_.
+    exists fs.
+    exists ms.
+    exact H_binds.
+    +
+    exact H_sub.
+Qed.
+Hint Resolve object_sub_top.
 
 (* Attempt to show usful Set level facts about ClassTable *)
 (*
@@ -835,6 +923,7 @@ Lemma object_sub_top : forall CT C,
     sub_ CT C Object.
 Proof.
     intros CT C H_noobj H_dir H_ok.
+    induction CT using ClassTable_rect.
 
     refine((ClassTable_rect CT 
         (fun C:cname => sub_ CT C Object)
@@ -1008,7 +1097,7 @@ Lemma not_your_father (CT:ctable) : forall A B C D fs ms,
 Proof.
     intros A B C D fs ms H_dir H_noobj H_sub.
     unfold not.
-    induction H_sub.
+    induction H_sub using ssub__ind_old.
     auto.
     unfold_extends H.
     unfold_directed H_dir.
@@ -1035,6 +1124,15 @@ Proof.
     destruct H_binds; crush.
 Qed. Hint Resolve not_your_father.
 
+Lemma no_ssub_with_empty_table C D :
+    ssub_ nil C D ->
+    False.
+Proof.
+    intros H_sub.
+    induction H_sub using ssub__ind_old; auto.
+Qed.
+Hint Resolve no_ssub_with_empty_table.
+
 Lemma weaken_ssub (CT:ctable) C D A B fs ms
     (H_dir: directed_ct ((A, (B, fs, ms))::CT))
     (* ok_type_ CT C -> *)
@@ -1044,7 +1142,8 @@ Lemma weaken_ssub (CT:ctable) C D A B fs ms
     (H_sub: ssub_ ((A, (B, fs, ms)) :: CT) C D)
     : ssub_ CT C D.
 Proof.
-    induction H_sub.
+    pattern C, D, H_dir, H_noobj, H_neq.
+    induction H_sub using ssub__ind_old.
     - apply ssub_trans with (t2:=t2).
     +
     crush.
@@ -1070,7 +1169,7 @@ Proof.
     intros H_sub.
     induction CT.
     -
-    induction H_sub; auto.
+    induction H_sub using ssub__ind_old; auto.
     -
     destruct a as [A [[B fs] ms]].
     unfold_directed H_dir.
@@ -1080,15 +1179,6 @@ Proof.
     apply IHCT. crush. auto.
     refine (weaken_ssub CT C C A B fs ms H_dir H_noobj H_neq H_sub).
 Qed. Hint Resolve ssub_anti_reflexive.
-
-Lemma no_ssub_with_empty_table C D :
-    ssub_ nil C D ->
-    False.
-Proof.
-    intros H_sub.
-    induction H_sub;  auto.
-Qed.
-Hint Resolve no_ssub_with_empty_table.
 
 Lemma anti_symmetric_ssub (CT: ctable) C D :
     directed_ct CT ->
@@ -1263,7 +1353,7 @@ Proof.
     move H_ok_C_s after H_ok_C.
 
     {
-        induction H_sub.
+        induction H_sub using ssub__ind_old.
         move t1 before fs.
         move t2 before t1.
         move t3 before t2.
@@ -1323,16 +1413,15 @@ Proof.
         rewrite <- H_eq in * |- *; clear H_eq.
         clear IHCT. (* Not goin to use it *)
         {
-            (* THIS LINE.  Some C is changed to t1, and some to C0 *)
-            induction H_sub as [t1 t2 t3|].
+            fail.
+            induction H_sub.
             - (* trans *)
             destruct (A == t2) as [|H_neq_t2].
             +
             subst.
-            assert (H: t2 \in dom ((C0, (F, fs2, ms2)) :: CT)). {
+            assert (H: t2 \in dom ((t1, (F, fs2, ms2)) :: CT)). {
                 apply ssub_child_in_table with (D:= t3).
                 auto.
-                crush.
                 auto.
             }
             contradiction H.
