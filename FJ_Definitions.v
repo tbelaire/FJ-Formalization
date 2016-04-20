@@ -1764,131 +1764,28 @@ Proof.
     }
 Qed. Hint Resolve strengthen_ssub.
 
-Lemma strengthen_sub (CT:ctable) : forall C D A B ms fs,
-    directed_ct ((A, (B, fs, ms)) :: CT) ->
-    ok_type_ ((A, (B, fs, ms)) :: CT) C ->
-    Object \notin dom ((A, (B, fs, ms)) :: CT) ->
-    A <> C ->
-    sub_ CT C D ->
-    ok_type_ CT D ->
+Lemma strengthen_sub (CT:ctable) C D A B ms fs
+    (H_dir: directed_ct ((A, (B, fs, ms)) :: CT))
+    (H_noobj: Object \notin dom ((A, (B, fs, ms)) :: CT))
+    (H_ok_C_s: ok_type_ ((A, (B, fs, ms)) :: CT) C)
+    (H_neq_AC: A <> C)
+    (H_sub: sub_ CT C D)
+    (H_ok_D: ok_type_ CT D)
+    :
     sub_ ((A, (B, fs, ms)) :: CT) C D.
 Proof.
-    intros C D A B ms fs H_dir H_ok_C H_noobj H_neq H_sub H_ok_D.
-    assert (H_ok_C_weak: ok_type_ CT C) by
-        refine (weaken_ok_type CT C _ _ _ _ H_neq H_ok_C).
-    induction CT.
-
+    assert (H: ssub_ CT C D \/ C = D). {
+        apply sub_to_ssub_or_eq; assumption.
+    }
+    destruct H as [H_ssub | H_eq].
     -
-    assert (H : C = Object /\ D = Object) by auto.
-    destruct H; subst.
+    apply ssub_to_sub.
+    apply strengthen_ssub; assumption.
+    -
+    subst.
     apply sub_refl.
-    auto.
-
-    -
-    destruct a as [E [[F fs2] ms2]].
-    unfold_directed H_dir.
-    unfold_directed H_dir0.
-    destruct (E == B) as [ | H_neqB].
-    +
-    subst.
-    clear IHCT. (* it doesn't apply as B is not okay in CT. *)
-    move H_dir0 before H_dir.
-    move H_dir1 after H_dir0.
-    move H_noobj before  fs.
-    move H_ok_C before H_ok0.
-    move H_ok_D before H_ok_C.
-    move H_ok before H_ok_D.
-    rename H_ok into H_ok_B.
-    move H_ok_C_weak before H_ok_D.
-
-    {
-    induction H_sub.
-    -
-    auto.
-    - (* trans *)
-    destruct (A == t2).
-    + (* This is a contradiciton as t2 \notin B :: dom CT,
-    but sub_ B:: CT t2 t3 *)
-
-    subst.
-    assert (H_ssub_1: ssub_ ((B, (F, fs2, ms2)) :: CT) t1 t2).
-    +
-
-    apply sub_trans with (t2:=t2).
-    +
-
-    +
-    apply IHH_sub1; try assumption.
-    apply sub_ok_1 with (D := t3); assumption.
-    +
-    apply IHH_sub2; try assumption.
-    {
-    - subst.
-    -
-    }
-
-
-    
-    }
-
-
-    +
-    {
-    assert (H_sub2 :  sub_ ((A, (B, fs, ms)) :: CT) C D).
-    apply IHCT.
-    constructor.
-    auto.
-    crush.
-    {
-    - subst. apply (weaken_ok_type CT B B F fs2 ms2).
-    -
-    }admit.
-    eapply weaken_ok_type. exact H_neqB. exact H_ok.
-    assert (H_neqC: E <> C). admit.
-    apply strengthen_ok_type.
-    apply weaken_ok_type with (A:= E) (B:=F) (fs:=fs2) (ms:=ms2).
-    auto.
-    auto.
-    crush.
-    apply (weaken_sub CT C D A B fs ms).
-    constructor.
-    auto.
-    crush.
-    eapply weaken_ok_type. 
-    assert (H_neqB: E <> B). admit.
-    exact H_neqB.
-    exact H_ok.
-    crush.
-    auto.
-
-
-Qed.
-
-
-(*
-    refine((ClassTable_rect CT
-        (fun D:cname => sub_ ((A, (B, fs, ms)) :: CT) C D)
-        H_dir0  _  _(*PO*) _(*PInd*))
-    D H_ok_D).
-    - (* Object \notin dom CT *)
-    crush.
-    - (* sub_ (A, (B, fs ms)) ::CT  C Object *)
-    auto.
-    -
-    clear D H_sub H_ok_D.
-    intros C' D fs' ms' H_ok_D H_binds H_subCD.
-    (* H_subCD must in fact be a transitive case.
-    * If it were a extends case,
-    * we would have binds C (D,..) and binds C' (D, ...)
-    *)
-    induction H_subCD as [ CD |  |  ].
-    - (* C = D case *)
-
-
-Qed.
-*)
-    
-
+    assumption.
+Qed. Hint Resolve strengthen_sub.
 
 (* TODO Restructure below this point still *)
 
