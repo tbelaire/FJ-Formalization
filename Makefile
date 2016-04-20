@@ -1,4 +1,6 @@
-COQC := /usr/local/Cellar/coq/8.5/bin/coqc
+# COQC := /usr/local/Cellar/coq/my-coq/bin/coqc
+# COQC := /usr/local/Cellar/coq/8.5/bin/coqc
+COQC := /usr/local/Cellar/coq/8.4pl6_1/bin/coqc
 
 COQ_SOURCES := $(wildcard *.v)
 
@@ -13,7 +15,7 @@ dep.mk: ${COQ_SOURCES}
 	${COQC} $<
 
 clean:
-	-rm *.vo *.glob
+	-rm *.vo *.glob dep.mk
 
 
 .PHONY : all clean

@@ -160,6 +160,55 @@ Inductive sub_ (CT:ctable) : typ -> typ -> Prop :=
 
 
 (* Strict subset *)
+(* This is phrased as being indexed on CT instead of parameterized
+due to an problem arising when we want to prove things about some C subset of D,
+in ((C, (D, fs, ms)) :: CT).
+
+Previously it was paramaterized:
+
+    Inductive ssub_ (CT: ctable): typ -> typ -> Prop :=
+    | ssub_trans : forall t1 t2 t3,
+            ssub_ CT t1 t2 ->
+            ssub_ CT t2 t3 ->
+            ssub_ CT t1 t3
+    | ssub_extends : forall t1 t2, @extends_ CT t1 t2 -> ssub_ CT t1 t2.
+
+Which gave rise to this induction scheme:
+
+    Theorem ssub__ind_parametric :
+    forall (CT : ctable) (P : typ -> typ -> Prop),
+    (forall t1 t2 t3 : typ,
+        ssub_ CT t1 t2 -> P t1 t2 ->
+        ssub_ CT t2 t3 -> P t2 t3 ->
+        P t1 t3) ->
+    (forall t1 t2 : cname, extends_ CT t1 t2 -> P t1 t2) ->
+    forall C D : typ, ssub_ CT C D -> P C D.
+
+Key part: forall C D, ssub_ CT C D -> P C D.
+trying to write
+
+    forall C D, ssub_ ((C, (D, fs, ms)) :: CT) C D -> P C D
+
+is impossible, as the bindings for C and D will be fresh, and you'd get
+
+    forall C' D', ssub_ ((C, (D, fs, ms)) :: CT) C' D' -> P C' D'
+
+which obviously is less helpful.
+
+However, most proofs do not rely on this generality, and in fact,
+it's not helpful, as you need to do the convoy pattern or inversions
+more frequently when using the new induction scheme.
+
+Helpfully, we can still do induction using the old scheme.
+`no_ssub_with_empty_table` is a very good example of this.
+
+
+*)
+Inductive ssub_p (CT:ctable) : typ -> typ -> Prop :=
+| ssub_p_trans : forall t1 t2 t3,
+        ssub_p CT t1 t2 -> ssub_p CT t2 t3 -> ssub_p CT t1 t3
+| ssub_p_extends : forall C D, extends_ CT C D -> ssub_p CT C D.
+
 Inductive ssub_ : ctable -> typ -> typ -> Prop :=
 | ssub_trans : forall CT t1 t2 t3,
         ssub_ CT t1 t2 ->
@@ -322,7 +371,7 @@ Hint Resolve directed_binds.
 
 
 
-Lemma ssub__ind_old : 
+Lemma ssub__ind_parametric : 
   forall (CT : ctable) (P : typ -> typ -> Prop),
  (forall t1 t2 t3 : typ,
 ssub_ CT t1 t2 -> P t1 t2 -> ssub_ CT t2 t3 -> P t2 t3 -> P t1 t3) ->
@@ -692,18 +741,56 @@ Defined.
    forall (x1:Ti_1) (x2:Ti_2) ... (xni:Ti_ni),         (induction arguments)
    (HI: I prm1..prmp x1...xni)                         (optional main ind)
    *)
+(** ClassTable_rect
+* The idea behind this theorem is for a fixed class table CT,
+* if we have a property `P : cname -> Prop` we wish to show,
+* then it suffices to show (P Object) and (P D -> P C) when C
+* inherits from D.
+* There are a few additional hypothesis required, such as CT being directed,
+* and not including Object, as well as all the classes involved being
+* ok_type, that is either Object, or in CT.
+*
+* This theorem isn't actually an induction scheme, as defined
+* by coq, as P does not take CT as an argument.  However, so long as you
+* are not proving things about some C and (C, (D, fs,ms)) :: CT,
+* where you would need to pick the class table after you pick C,
+* this theorem works quite well.
+*
+* It requires a manual use of `refine`, and usually specifying P exactly,
+* unfortunately.
+*
+*)
+(* I don't think it's possible to prove a more general theorem.
+If we had `filter_to_lineage C CT`, which removed from CT
+all the pairs that didn't start with C or an ancestor of C,
+and we tried to prove
 
-Theorem ClassTable_rect (CT :ctable) 
-    (P : cname -> Type)
+forall (P: ctable -> typ -> Prop)
+
+forall CT,   P (filter_to_lineage CT Object) Object ->
+forall CT C, P (filter_to_lineage C CT) C ->
+forall CT C,
+directed_ct CT ->
+Object \notin CT ->
+ok_type_ CT C ->
+P CT C.
+
+It wouldn't hold up, as  TODO ?
+*)
+
+
+
+Theorem ClassTable_rect (CT: ctable)
+    (P: cname -> Type)
+    (H_dir: directed_ct CT)
+    (H_noobj: Object \notin dom CT)
     (H_obj: P Object)
     (H_ind: (forall (C D : cname) fs ms,
       ok_type_ CT D ->
       binds C (D, fs, ms) CT ->
       P D -> P C))
     : forall C: cname,
-    forall (H_dir: directed_ct CT)
-    (H_noobj: Object \notin dom CT)
-    (H_ok: ok_type_ CT C),
+     (ok_type_ CT C) ->
     P C.
 Proof.
     induction CT as [| [D [[E fs] ms]] CT'].
@@ -711,10 +798,30 @@ Proof.
     intros.
     apply ClassTable_rect_base_case; auto.
     - (* cons *)
-    intros C H_dir H_noobj.
     apply ClassTable_rect_inductive_step; auto.
 Defined.
 
+(* Specialized to Prop *)
+Theorem ClassTable_ind (CT: ctable)
+    (P: cname -> Prop)
+    (H_dir: directed_ct CT)
+    (H_noobj: Object \notin dom CT)
+    (H_obj: P Object)
+    (H_ind: (forall (C D : cname) fs ms,
+      ok_type_ CT D ->
+      binds C (D, fs, ms) CT ->
+      P D -> P C))
+    : forall C: cname,
+     (ok_type_ CT C) ->
+    P C.
+Proof.
+    apply ClassTable_rect; auto.
+Qed.
+(** Here is an excellent example of how ClassTable_ind can be used to simplify
+* a proof:
+* This proof stats that every class is a subclass of object, which is 'trivial',
+* yet is only easy to prove using ClassTable_ind.
+*)
 Lemma object_sub_top : forall CT C,
     Object \notin dom CT ->
     directed_ct CT ->
@@ -722,32 +829,108 @@ Lemma object_sub_top : forall CT C,
     sub_ CT C Object.
 Proof.
     intros CT C H_noobj H_dir H_ok.
-    (* THIS LINE *)
-    induction CT  using ClassTable_rect .
-    fail.
 
-    refine((ClassTable_rect CT 
-        (fun C:cname => sub_ CT C Object)
+    refine((ClassTable_rect CT
+        (* P *) (fun C:cname => sub_ CT C Object)
         H_dir  H_noobj  _(*PO*) _(*PInd*))
     C H_ok).
-    -
+    - (* sub_ CT Object Object *)
     apply sub_refl.
     constructor.
-    -
+    - (* ok_type_ CT D -> binds C (D, fs, ms) -> sub_ CT D Object -> sub_ CT C Object *)
 
+    (* refine doesn't clear away hypothesis like induction does, so we must
+     * do it ourselves. *)
     clear C H_ok.
     intros C D fs ms H_ok H_binds H_sub.
     apply sub_trans with (t2 := D).
-    +
+    + (* sub_ CT C D *)
     apply sub_extends.
     unfold extends_.
     exists fs.
     exists ms.
     exact H_binds.
-    +
+    + (* sub_ CT D Object *)
     exact H_sub.
 Qed.
 Hint Resolve object_sub_top.
+
+Lemma object_sub_top_hard_way CT C
+    (H_noobj: Object \notin dom CT)
+    (H_dir: directed_ct CT)
+    (H_ok_C: ok_type_ CT C)
+    : sub_ CT C Object.
+Proof.
+    (* If we just do an induction on CT... *)
+    (* We need the induction principle to hold no matter what class we are talking about. *)
+    generalize C, H_ok_C; clear C H_ok_C.
+    induction CT.
+    - (* sub_ nil C Object *)
+    intros C H_ok_C.
+    inversion H_ok_C; auto.
+    - (* sub_ ((A, (B, fs, ms)) :: CT) C Object *)
+    (* Here we don't really know anything, we have to do cases on what
+    * A and B are to try and figure out what case we are in. *)
+    intros C H_ok_C.
+    destruct a as [A [[B fs] ms]].
+    unfold_directed H_dir.
+    destruct (A == C).
+    + { (* Then we know that sub_ CT B Object, and use transitivity *)
+    subst.
+    apply sub_trans with (t2 := B).
+    - (* sub C B *)
+    apply sub_extends.
+    unfold extends_.
+    exists fs, ms.
+    auto.
+    - (* sub_ ((C, (B, fs, ms))::CT) B Object *)
+    (* An application of the induction hypothesis get us this: *)
+    assert (H_sub: sub_ CT B Object). {
+        apply IHCT; crush.
+    }
+    (* Here, we run into a problem, as we need to show that
+    adding an extra pair to the front of CT doesn't invalidate
+    sub, but that's actually a nontrivial theorem below that depends
+    on the current fact.
+    We are forced to abort.*)
+Abort.
+(* And that's why ClassTable_ind is useful. *)
+
+(* Unfortunately, it is less useful for computation than I hoped.
+I would have liked to show the pair of theorems about how it reduces,
+so if we have some `H : forall C, ok_type_ CT C -> P C`  we proved with an application of
+ClassTable_rect CT .. P_Obj P_Ind,
+and we apply it `H Object _`, we should get exactly P_Obj,
+and if we apply it to `H C _`, when we have `H_binds: binds C (D, fs, ms) CT`,
+and some `P_D : P D`
+then we should get (P_Ind C D ...  P_D).
+
+This would be really useful, as we could define method resolution using ClassTable_rect
+instead of helper functions, and P_Obj and P_Ind are really simple.
+
+when looking up a method named M
+
+    P_Obj := None (* as Object has no methods *)
+    P_Ind C D fs ms ... P_D :=
+        match lookup M ms with
+        | Some (m_body) => Some (m_body) (* we overrode the method in C *)
+        | None => P_D (* We did not, so look it up in D *)
+        end.
+
+If we could write the method we find in terms of a chain of applications of
+P_Ind capped off by a P_Obj, it would simple to prove things based on induction.
+
+Alas, it does not seem tractable to prove both of those reduction rules,
+as they require simplifying the body of ClassTable_rect Defined above,
+which expands to over 3000 lines.  That's actually the reason it was
+split into so many lemmas, in an attempt to manage the size of the goal.
+
+It was possible to prove the case for Object, but the proof is commented
+out as it takes a while to step past it.
+
+*)
+
+
 
 (* Attempt to show usful Set level facts about ClassTable *)
 (*
@@ -915,7 +1098,7 @@ Abort.
 
 *)
 
-
+(* Proved as an example above. 
 Lemma object_sub_top : forall CT C,
     Object \notin dom CT ->
     directed_ct CT ->
@@ -947,6 +1130,7 @@ Proof.
     exact H_sub.
 Qed.
 Hint Resolve object_sub_top.
+*)
 
 Lemma object_ssub_top' : forall CT C,
     Object \notin dom CT ->
@@ -1097,7 +1281,7 @@ Lemma not_your_father (CT:ctable) : forall A B C D fs ms,
 Proof.
     intros A B C D fs ms H_dir H_noobj H_sub.
     unfold not.
-    induction H_sub using ssub__ind_old.
+    induction H_sub using ssub__ind_parametric.
     auto.
     unfold_extends H.
     unfold_directed H_dir.
@@ -1124,14 +1308,19 @@ Proof.
     destruct H_binds; crush.
 Qed. Hint Resolve not_your_father.
 
+(* This is signifigently easier with the parametric induction scheme,
+as the index based one "forgets" that CT is nil, making it impossible.
+I think you could do it by writing the proof longhand and using
+the convoy pattern, but it's much more work *)
 Lemma no_ssub_with_empty_table C D :
     ssub_ nil C D ->
     False.
 Proof.
     intros H_sub.
-    induction H_sub using ssub__ind_old; auto.
+    induction H_sub using ssub__ind_parametric; auto.
 Qed.
 Hint Resolve no_ssub_with_empty_table.
+
 
 Lemma weaken_ssub (CT:ctable) C D A B fs ms
     (H_dir: directed_ct ((A, (B, fs, ms))::CT))
@@ -1143,7 +1332,7 @@ Lemma weaken_ssub (CT:ctable) C D A B fs ms
     : ssub_ CT C D.
 Proof.
     pattern C, D, H_dir, H_noobj, H_neq.
-    induction H_sub using ssub__ind_old.
+    induction H_sub using ssub__ind_parametric.
     - apply ssub_trans with (t2:=t2).
     +
     crush.
@@ -1169,7 +1358,7 @@ Proof.
     intros H_sub.
     induction CT.
     -
-    induction H_sub using ssub__ind_old; auto.
+    induction H_sub using ssub__ind_parametric; auto.
     -
     destruct a as [A [[B fs] ms]].
     unfold_directed H_dir.
@@ -1317,6 +1506,85 @@ Proof.
     exact (H_binds).
 Qed. Hint Resolve weaken_sub.
 
+(* A particular subcase of strengthening ssub *)
+Lemma strengthen_ssub_case
+    (CT : list (cname * (cname * flds * mths)))
+    (A : cname)
+    (B : cname)
+    (C : typ)
+    (D : typ)
+    (F : cname)
+    (ms : mths)
+    (fs : flds)
+    (fs2 : flds)
+    (ms2 : mths)
+    (H_dir0 : directed_ct ((C, (F, fs2, ms2)) :: CT))
+    (H_noobj0 : Object \notin dom ((C, (F, fs2, ms2)) :: CT))
+    (H_neq_C : A <> C)
+    (H_notin : A \notin keys ((C, (F, fs2, ms2)) :: CT))
+    (H_sub : ssub_ ((C, (F, fs2, ms2)) :: CT) C D)
+    :
+    ssub_ ((A, (B, fs, ms)) :: (C, (F, fs2, ms2)) :: CT) C D.
+Proof.
+    refine ((ssub__ind
+    (* P *) (fun CT X Y => 
+    directed_ct CT ->
+    Object \notin dom CT ->
+    A <> X ->
+    A \notin keys CT ->
+    ssub_ ((A, (B, fs, ms))::CT) X Y)
+    (* H_Trans *) _
+    (* H_Extend *) _)
+    (* CT *) ((C, (F, fs2, ms2)) :: CT)
+    C D H_sub
+    H_dir0
+    H_noobj0
+    H_neq_C
+    H_notin
+    ).
+    - (* trans *)
+    clear.
+    intros CT C t2 D.
+    intros H_sub_1 IH_1 H_sub_2 IH_2.
+    intros H_dir0 H_noobj0.
+    intros H_neqAC .
+    intros H_A_notin.
+
+    destruct (A == t2) as [H_eq_At2|H_neq_t2].
+    + (* A = t2 *)
+    rewrite <- H_eq_At2 in * |- *; clear H_eq_At2.
+    clear IH_1 IH_2.
+    assert (H: A \in keys CT) by
+    refine (ssub_child_in_table CT A D H_dir0 H_noobj0 H_sub_2).
+    contradiction H.
+    + (* A <> t2 *)
+    assert (C <> t2). {
+        destruct (C == t2) as [H_eq_Ct2 | H_neq_Ct2].
+        - (* eq *)
+        rewrite <- H_eq_Ct2 in H_sub_1.
+        exfalso.
+        refine (ssub_anti_reflexive CT C H_noobj0 H_dir0 H_sub_1).
+        - (* neq *) exact H_neq_Ct2.
+    }
+    assert (H_ok_t2: ok_type_ CT t2) by
+    exact (ssub_ok_1 CT t2 D H_sub_2).
+    apply ssub_trans with (t2:=t2).
+    apply IH_1; assumption.
+    apply IH_2; assumption.
+    - (* extends *)
+    clear.
+    intros CT C D H_extends.
+    intros H_dir0 H_noobj0.
+    intros H_neqAC .
+    intros H_A_notin.
+
+    unfold_extends H_extends.
+    apply ssub_extends.
+    unfold extends_.
+    exists fs0, ms0.
+    apply (binds_other _ H_binds H_neqAC).
+Qed.
+
 Lemma strengthen_ssub (CT:ctable) C D A B ms fs
     (H_dir: directed_ct ((A, (B, fs, ms)) :: CT))
     (H_ok_C_s: ok_type_ ((A, (B, fs, ms)) :: CT) C)
@@ -1339,7 +1607,7 @@ Proof.
     unfold_directed H_dir.
     unfold_directed H_dir0.
     destruct (E == B) as [ | H_neq_B].
-    +
+    + (* E = B Case *)
     subst.
     clear IHCT. (* it doesn't apply as B is not okay in CT. *)
     move H_dir0 before H_dir.
@@ -1353,7 +1621,7 @@ Proof.
     move H_ok_C_s after H_ok_C.
 
     {
-        induction H_sub using ssub__ind_old.
+        induction H_sub using ssub__ind_parametric.
         move t1 before fs.
         move t2 before t1.
         move t3 before t2.
@@ -1405,6 +1673,17 @@ Proof.
     move H_neq_D before H_neq_C.
     assert (H_ok_B_w: ok_type_ CT B) by
         refine (weaken_ok_type CT B E F fs2 ms2 H_neq_B H_ok_B).
+    move H_ok_B_w after H_ok_F_w.
+
+    assert (H_noobj0: Object \notin dom ((E, (F, fs2, ms2)) :: CT)) by crush.
+    move H_noobj0 before H_noobj.
+    assert (H_noobj1: Object \notin dom CT) by crush.
+    move H_noobj1 before H_noobj0.
+
+    assert (H_neq_ED: E <> D) by
+        refine (not_your_father CT E F C D fs2 ms2
+        H_dir0 H_noobj0 H_sub).
+    move H_neq_ED before H_neq_B.
 
     (* Is C = E and D = F? *)
     {
@@ -1412,51 +1691,78 @@ Proof.
         -
         rewrite <- H_eq in * |- *; clear H_eq.
         clear IHCT. (* Not goin to use it *)
+        apply strengthen_ssub_case; assumption.
+        - (* C <> E *)
+        move H_neq_CE after H_neq_ED.
+
+
+        assert (H_neq_EC: E <> C) by auto.
+        assert (H_notin1: A \notin keys CT) by crush.
+        assert(H_sub_w: ssub_ CT C D). {
+            apply weaken_ssub with (A:=E) (B:=F) (fs:=fs2) (ms:=ms2); auto.
+        } move H_sub_w before H_sub.
+        clear IHCT.
+        (* Trans should fall easily enough, then extends should not be too bad. *)
         {
-            fail.
-            induction H_sub.
+            refine ((ssub__ind
+            (* P *) (fun CT X Y => forall
+            (H_dir: directed_ct CT)
+            (H_noobj: Object \notin dom CT)
+            (H_neq1: A <> X)
+            (H_neq2: E <> X)
+            (H_notin1: A \notin keys CT)
+            (H_notin2: E \notin keys CT ),
+            ssub_ ((A, (B, fs, ms))::(E, (F, fs2, ms2))::CT) X Y)
+            (* H_Trans *) _
+            (* H_Extend *) _)
+            (* CT *) CT
+            C D H_sub_w
+            _ _ _ _ _ _); try assumption.
             - (* trans *)
-            destruct (A == t2) as [|H_neq_t2].
+            clear dependent CT.
+            clear dependent C.
+            clear dependent D.
+
+            intros CT t1 t2 t3.
+            intros H_sub_1 IHH_sub_1 H_sub_2 IHH_sub_2.
+            intros.
+            apply ssub_trans with (t2:=t2).
             +
-            subst.
-            assert (H: t2 \in dom ((t1, (F, fs2, ms2)) :: CT)). {
-                apply ssub_child_in_table with (D:= t3).
-                auto.
+            auto.
+            + (* Need t2 <> A, t2 <> E *)
+
+            assert (t2 \in keys CT). {
+                apply ssub_child_in_table with (D := t3); assumption.
+            }
+            assert (A <> t2). {
+                destruct (A == t2).
+                subst.
+                contradiction.
                 auto.
             }
-            contradiction H.
-            +
-            apply ssub_trans with (t2:=t2).
-            {
-            apply IHH_sub1; try assumption.
-            apply ssub_ok_1 with (D := t3). assumption.
-            -
-            assert (H_ok_t2_s: ok_type_ ((B, (F, fs2, ms2)) :: CT) t2).
-            apply ssub_ok_2 with (C:= t1) (D := t2); assumption.
-            apply IHH_sub2; try assumption.
-            apply strengthen_ok_type; assumption.
-
-
-
+            assert (E <> t2). {
+                destruct (E == t2).
+                subst.
+                contradiction.
+                auto.
+            }
+            auto.
             - (* extends *)
+            clear dependent CT;
+            clear dependent C;
+            clear dependent D.
+            intros CT C D H_extends.
+            intros.
+
+            unfold_extends H_extends.
+            apply ssub_extends.
+            unfold extends_.
+            exists fs0, ms0.
+            auto.
         }
-
-    -
-    assert (H_ok_C_w: ok_type_ CT C). { 
-        refine (weaken_ok_type CT C E F fs2 ms2 _ H_ok_C).
-    assert (ssub_ ((A, (B, fs, ms)) :: CT) C D). {
-        apply IHCT; auto.
-        constructor; crush.
-
     }
     }
-    {
-    induction H_sub.
-    - (* trans *)
-
-    }
-
-    Qed.
+Qed. Hint Resolve strengthen_ssub.
 
 Lemma strengthen_sub (CT:ctable) : forall C D A B ms fs,
     directed_ct ((A, (B, fs, ms)) :: CT) ->
@@ -1580,6 +1886,7 @@ Qed.
 
 
 Qed.
+*)
     
 
 
