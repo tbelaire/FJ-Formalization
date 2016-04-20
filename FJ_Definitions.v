@@ -1508,54 +1508,46 @@ Qed. Hint Resolve weaken_sub.
 
 (* A particular subcase of strengthening ssub *)
 Lemma strengthen_ssub_case
-    (CT : list (cname * (cname * flds * mths)))
+    (CT : ctable)
     (A : cname)
     (B : cname)
-    (C : typ)
-    (D : typ)
+    (C : cname)
+    (D : cname)
     (F : cname)
     (ms : mths)
     (fs : flds)
     (fs2 : flds)
     (ms2 : mths)
-    (H_dir0 : directed_ct ((C, (F, fs2, ms2)) :: CT))
-    (H_noobj0 : Object \notin dom ((C, (F, fs2, ms2)) :: CT))
-    (H_neq_C : A <> C)
-    (H_notin : A \notin keys ((C, (F, fs2, ms2)) :: CT))
     (H_sub : ssub_ ((C, (F, fs2, ms2)) :: CT) C D)
-    :
+    : directed_ct ((C, (F, fs2, ms2)) :: CT) ->
+      Object \notin dom ((C, (F, fs2, ms2)) :: CT) ->
+      A <> C ->
+      A \notin keys ((C, (F, fs2, ms2)) :: CT) ->
     ssub_ ((A, (B, fs, ms)) :: (C, (F, fs2, ms2)) :: CT) C D.
 Proof.
     refine ((ssub__ind
-    (* P *) (fun CT X Y => 
-    directed_ct CT ->
-    Object \notin dom CT ->
-    A <> X ->
-    A \notin keys CT ->
-    ssub_ ((A, (B, fs, ms))::CT) X Y)
+    (* P *) (fun CT X Y => forall
+            (H_dir: directed_ct CT)
+            (H_noobj: Object \notin dom CT)
+            (H_neqAC: A <> X)
+            (H_A_notin: A \notin keys CT),
+            ssub_ ((A, (B, fs, ms))::CT) X Y)
     (* H_Trans *) _
     (* H_Extend *) _)
     (* CT *) ((C, (F, fs2, ms2)) :: CT)
-    C D H_sub
-    H_dir0
-    H_noobj0
-    H_neq_C
-    H_notin
-    ).
+    C D H_sub).
     - (* trans *)
     clear.
     intros CT C t2 D.
     intros H_sub_1 IH_1 H_sub_2 IH_2.
-    intros H_dir0 H_noobj0.
-    intros H_neqAC .
-    intros H_A_notin.
+    intros.
 
     destruct (A == t2) as [H_eq_At2|H_neq_t2].
     + (* A = t2 *)
     rewrite <- H_eq_At2 in * |- *; clear H_eq_At2.
     clear IH_1 IH_2.
     assert (H: A \in keys CT) by
-    refine (ssub_child_in_table CT A D H_dir0 H_noobj0 H_sub_2).
+    refine (ssub_child_in_table CT A D H_dir H_noobj H_sub_2).
     contradiction H.
     + (* A <> t2 *)
     assert (C <> t2). {
@@ -1563,7 +1555,7 @@ Proof.
         - (* eq *)
         rewrite <- H_eq_Ct2 in H_sub_1.
         exfalso.
-        refine (ssub_anti_reflexive CT C H_noobj0 H_dir0 H_sub_1).
+        refine (ssub_anti_reflexive CT C H_noobj H_dir H_sub_1).
         - (* neq *) exact H_neq_Ct2.
     }
     assert (H_ok_t2: ok_type_ CT t2) by
@@ -1574,15 +1566,84 @@ Proof.
     - (* extends *)
     clear.
     intros CT C D H_extends.
-    intros H_dir0 H_noobj0.
-    intros H_neqAC .
-    intros H_A_notin.
+    intros.
 
     unfold_extends H_extends.
     apply ssub_extends.
     unfold extends_.
     exists fs0, ms0.
     apply (binds_other _ H_binds H_neqAC).
+Qed.
+
+Lemma strengthen_ssub_case_2 (CT : ctable)
+    (C : cname) (D : cname)
+    (A : cname) (B : cname)
+    (E : cname) (F : cname)
+    (ms1 : mths) (fs1 : flds)
+    (fs2 : flds) (ms2 : mths)
+    :   ssub_ CT C D ->
+        directed_ct CT ->
+        Object \notin dom CT ->
+        A <> C ->
+        E <> C ->
+        A \notin keys CT ->
+        E \notin keys CT ->
+    ssub_ ((A, (B, fs1, ms1)) :: (E, (F, fs2, ms2)) :: CT) C D.
+Proof.
+    refine ((ssub__ind
+    (* P *) (fun CT X Y => forall
+                (H_dir: directed_ct CT)
+                (H_noobj: Object \notin dom CT)
+                (H_neq1: A <> X)
+                (H_neq2: E <> X)
+                (H_notin1: A \notin keys CT)
+                (H_notin2: E \notin keys CT ),
+                ssub_ ((A, (B, fs1, ms1))::(E, (F, fs2, ms2))::CT) X Y)
+    (* H_Trans *) _
+    (* H_Extend *) _)
+    CT C D).
+    - (* trans *)
+    clear dependent CT.
+    clear dependent C.
+    clear dependent D.
+
+    intros CT t1 t2 t3.
+    intros H_sub_1 IHH_sub_1 H_sub_2 IHH_sub_2.
+    intros.
+    apply ssub_trans with (t2:=t2).
+    +
+    apply IHH_sub_1; assumption.
+    + (* Need t2 <> A, t2 <> E *)
+
+    assert (t2 \in keys CT). {
+        apply ssub_child_in_table with (D := t3); assumption.
+    }
+    assert (A <> t2). {
+        destruct (A == t2).
+        subst.
+        contradiction.
+        auto.
+    }
+    assert (E <> t2). {
+        destruct (E == t2).
+        subst.
+        contradiction.
+        auto.
+    }
+    apply IHH_sub_2; assumption.
+
+    - (* extends *)
+    clear dependent CT;
+    clear dependent C;
+    clear dependent D.
+    intros CT C D H_extends.
+    intros.
+
+    unfold_extends H_extends.
+    apply ssub_extends.
+    unfold extends_.
+    exists fs, ms.
+    auto.
 Qed.
 
 Lemma strengthen_ssub (CT:ctable) C D A B ms fs
@@ -1596,20 +1657,18 @@ Lemma strengthen_ssub (CT:ctable) C D A B ms fs
 Proof.
     assert (H_ok_C: ok_type_ CT C) by
         refine (weaken_ok_type CT C _ _ _ _ H_neq H_ok_C_s).
-    induction CT.
+    destruct CT as [| [E [[F fs2] ms2]]].
 
     -
     exfalso.
     exact (no_ssub_with_empty_table C D H_sub).
     -
     {
-    destruct a as [E [[F fs2] ms2]].
     unfold_directed H_dir.
     unfold_directed H_dir0.
     destruct (E == B) as [ | H_neq_B].
     + (* E = B Case *)
     subst.
-    clear IHCT. (* it doesn't apply as B is not okay in CT. *)
     move H_dir0 before H_dir.
     move H_dir1 after H_dir0.
     move H_noobj before  fs.
@@ -1655,45 +1714,43 @@ Proof.
         auto.
 
     }
-    + (* E <> B case *)
-    (* Going to be able to use IHCT  *)
-    move H_neq_B before H_neq.
-    rename H_neq into H_neq_C.
-    move H_dir0 before H_dir.
-    move H_dir1 before H_dir0.
-    move H_ok_C_s after H_ok_C.
-    rename H_ok0 into H_ok_F_w.
-    move H_ok_F_w before H_ok_C_s.
-    rename H_ok into H_ok_B.
-    move H_ok_B before H_ok_C.
+    + {  (* E <> B case *)
 
-    assert (H_neq_D: A <> D).  {
-        destruct H_ok_D as [| D H_in_D]; crush.
-    }
-    move H_neq_D before H_neq_C.
-    assert (H_ok_B_w: ok_type_ CT B) by
-        refine (weaken_ok_type CT B E F fs2 ms2 H_neq_B H_ok_B).
-    move H_ok_B_w after H_ok_F_w.
+        move H_neq_B before H_neq.
+        rename H_neq into H_neq_C.
+        move H_dir0 before H_dir.
+        move H_dir1 before H_dir0.
+        move H_ok_C_s after H_ok_C.
+        rename H_ok0 into H_ok_F_w.
+        move H_ok_F_w before H_ok_C_s.
+        rename H_ok into H_ok_B.
+        move H_ok_B before H_ok_C.
 
-    assert (H_noobj0: Object \notin dom ((E, (F, fs2, ms2)) :: CT)) by crush.
-    move H_noobj0 before H_noobj.
-    assert (H_noobj1: Object \notin dom CT) by crush.
-    move H_noobj1 before H_noobj0.
+        assert (H_neq_D: A <> D).  {
+            destruct H_ok_D as [| D H_in_D].
+            crush.
+            destruct (A == D).
+            subst.
+            contradiction.
+            auto.
+        } move H_neq_D before H_neq_C.
 
-    assert (H_neq_ED: E <> D) by
-        refine (not_your_father CT E F C D fs2 ms2
-        H_dir0 H_noobj0 H_sub).
-    move H_neq_ED before H_neq_B.
+        assert (H_ok_B_w: ok_type_ CT B) by
+            refine (weaken_ok_type CT B E F fs2 ms2 H_neq_B H_ok_B).
+        move H_ok_B_w after H_ok_F_w.
 
-    (* Is C = E and D = F? *)
-    {
+        assert (H_noobj0: Object \notin dom ((E, (F, fs2, ms2)) :: CT)) by crush.
+        move H_noobj0 before H_noobj.
+        assert (H_noobj1: Object \notin dom CT) by crush.
+        move H_noobj1 before H_noobj0.
+
+
+        (* Is C = E and D = F? *)
         destruct (C == E) as [H_eq | H_neq_CE].
         -
         rewrite <- H_eq in * |- *; clear H_eq.
-        clear IHCT. (* Not goin to use it *)
         apply strengthen_ssub_case; assumption.
         - (* C <> E *)
-        move H_neq_CE after H_neq_ED.
 
 
         assert (H_neq_EC: E <> C) by auto.
@@ -1701,65 +1758,8 @@ Proof.
         assert(H_sub_w: ssub_ CT C D). {
             apply weaken_ssub with (A:=E) (B:=F) (fs:=fs2) (ms:=ms2); auto.
         } move H_sub_w before H_sub.
-        clear IHCT.
         (* Trans should fall easily enough, then extends should not be too bad. *)
-        {
-            refine ((ssub__ind
-            (* P *) (fun CT X Y => forall
-            (H_dir: directed_ct CT)
-            (H_noobj: Object \notin dom CT)
-            (H_neq1: A <> X)
-            (H_neq2: E <> X)
-            (H_notin1: A \notin keys CT)
-            (H_notin2: E \notin keys CT ),
-            ssub_ ((A, (B, fs, ms))::(E, (F, fs2, ms2))::CT) X Y)
-            (* H_Trans *) _
-            (* H_Extend *) _)
-            (* CT *) CT
-            C D H_sub_w
-            _ _ _ _ _ _); try assumption.
-            - (* trans *)
-            clear dependent CT.
-            clear dependent C.
-            clear dependent D.
-
-            intros CT t1 t2 t3.
-            intros H_sub_1 IHH_sub_1 H_sub_2 IHH_sub_2.
-            intros.
-            apply ssub_trans with (t2:=t2).
-            +
-            auto.
-            + (* Need t2 <> A, t2 <> E *)
-
-            assert (t2 \in keys CT). {
-                apply ssub_child_in_table with (D := t3); assumption.
-            }
-            assert (A <> t2). {
-                destruct (A == t2).
-                subst.
-                contradiction.
-                auto.
-            }
-            assert (E <> t2). {
-                destruct (E == t2).
-                subst.
-                contradiction.
-                auto.
-            }
-            auto.
-            - (* extends *)
-            clear dependent CT;
-            clear dependent C;
-            clear dependent D.
-            intros CT C D H_extends.
-            intros.
-
-            unfold_extends H_extends.
-            apply ssub_extends.
-            unfold extends_.
-            exists fs0, ms0.
-            auto.
-        }
+        apply strengthen_ssub_case_2; try assumption.
     }
     }
 Qed. Hint Resolve strengthen_ssub.
